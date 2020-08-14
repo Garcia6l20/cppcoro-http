@@ -5,6 +5,7 @@
 
 #include <cppcoro/io_service.hpp>
 #include <cppcoro/net/socket.hpp>
+#include <cppcoro/cancellation_source.hpp>
 
 #include <utility>
 
@@ -57,7 +58,7 @@ namespace cppcoro {
                 socket_.listen();
             }
 
-            task <connection> accept() {
+            task<connection> accept() {
                 auto sock = net::create_tcp_socket<false>(ios_, endpoint_);
                 co_await socket_.accept(sock, cs_.token());
                 co_return connection{std::move(sock), cs_.token()};
@@ -71,6 +72,32 @@ namespace cppcoro {
             io_service &ios_;
             net::ip_endpoint endpoint_;
             net::socket socket_;
+            cancellation_source cs_;
+        };
+
+        class client
+        {
+        public:
+            client(client &&other) noexcept: ios_{other.ios_}, cs_{other.cs_} {}
+
+            client(const client &) = delete;
+
+            client(io_service &ios)
+                : ios_{ios} {
+            }
+
+            task<connection> connect(net::ip_endpoint &&endpoint) {
+                auto sock = net::create_tcp_socket<false>(ios_, std::forward<net::ip_endpoint>(endpoint));
+                co_await sock.connect(endpoint, cs_.token());
+                co_return connection{std::move(sock), cs_.token()};
+            }
+
+            void stop() {
+                cs_.request_cancellation();
+            }
+
+        protected:
+            io_service &ios_;
             cancellation_source cs_;
         };
     }

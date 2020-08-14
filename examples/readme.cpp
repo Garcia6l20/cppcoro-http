@@ -16,12 +16,12 @@ int main() {
 
     auto do_serve = [&]() -> task<> {
         http::server server{service, *net::ip_endpoint::from_string("127.0.0.1:4242")};
-        auto handle_conn = [](http::connection conn) mutable -> task<> {
+        auto handle_conn = [](http::server::connection_type conn) mutable -> task<> {
             http::router router;
             // route definition
             auto &route = router.add_route<R"(/hello/(\w+))">();
             // complete handler
-            route.complete([](const std::string &who) -> task<std::tuple<http::status, std::string>> {
+            route.on_complete([](const std::string &who) -> task<std::tuple<http::status, std::string>> {
                 co_return std::tuple{
                     http::status::HTTP_STATUS_OK,
                     fmt::format("Hello {} !!", who)

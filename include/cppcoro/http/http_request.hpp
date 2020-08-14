@@ -3,39 +3,31 @@
  */
 #pragma once
 
-#include <cppcoro/http/http.hpp>
+#include <cppcoro/http/details/static_parser_handler.hpp>
 
-#include <memory>
 #include <stdexcept>
 
 namespace cppcoro::http {
-    class request
+
+    class request : public detail::static_parser_handler<request>
     {
     public:
-        enum class status
-        {
-            none,
-            on_message_begin,
-            on_url,
-            on_status,
-            on_headers,
-            on_headers_complete,
-            on_body,
-            on_message_complete,
-            on_chunk_header,
-            on_chunk_header_compete,
-        };
 
-        request() :
-            parser_{std::make_unique<details::http_parser>()} {
-            http_parser_init(parser_.get(), details::http_parser_type::HTTP_REQUEST);
-            parser_->data = this;
+        request() {
+            init_parser(details::http_parser_type::HTTP_REQUEST);
         }
 
         request(std::string url, std::string body, headers headers)
             : url{std::move(url)}
             , body{std::move(body)}
             , headers{std::move(headers)} {}
+
+        request(http::method method, std::string &&url, std::string &&body, headers &&headers = {})
+            : url{std::forward<std::string>(url)}
+            , body{std::forward<std::string>(body)}
+            , headers{std::forward<http::headers>(headers)} {
+            this->method = method;
+        }
 
         request(request &&other) noexcept = delete;
 
@@ -55,59 +47,22 @@ namespace cppcoro::http {
         std::string body;
         http::headers headers;
 
-        [[nodiscard]] http::method method() const {
-            return http::method(parser_->method);
-        }
 
-        auto method_str() const {
-            return http_method_str(static_cast<details::http_method>(parser_->method));
-        }
-
-        [[nodiscard]] status state() const { return state_; }
-
-        explicit operator bool() const {
-            return state_ == status::on_message_complete;
-        }
-
-        void parse(const char *data, size_t len) {
-            const auto count = http_parser_execute(parser_.get(), &http_parser_settings_, data, len);
-            if (count < len) {
-                throw std::runtime_error{
-                    std::string("parse error: ") + http_errno_description(details::http_errno(parser_->http_errno))
-                };
+        std::string build_header() {
+            std::string output = fmt::format("{} {} HTTP/1.1\r\n"
+                                             "UserAgent: cppcoro-http/0.0\r\n",
+                                             method_str(),
+                                             url);
+            auto write_header = [&output](const std::string& field, const std::string& value) {
+                output += fmt::format("{}: {}\r\n", field, value);
+            };
+            headers["Content-Length"] = std::to_string(body.size());
+            for (auto &[field, value] : headers) {
+                write_header(field, value);
             }
+            output += "\r\n";
+            return output;
         }
 
-    private:
-        inline static auto &instance(details::http_parser *parser) {
-            return *static_cast<request *>(parser->data);
-        }
-
-        static int on_message_begin(details::http_parser *parser);
-        static int on_url(details::http_parser *parser, const char *data, size_t len);
-        static int on_status(details::http_parser *parser, const char *data, size_t len);
-        static int on_header_field(details::http_parser *parser, const char *data, size_t len);
-        static int on_header_value(details::http_parser *parser, const char *data, size_t len);
-        static int on_headers_complete(details::http_parser *parser);
-        static int on_body(details::http_parser *parser, const char *data, size_t len);
-        static int on_message_complete(details::http_parser *parser);
-        static int on_chunk_header(details::http_parser *parser);
-        static int on_chunk_complete(details::http_parser *parser);
-
-        inline static details::http_parser_settings http_parser_settings_ = {
-            on_message_begin,
-            on_url,
-            on_status,
-            on_header_field,
-            on_header_value,
-            on_headers_complete,
-            on_body,
-            on_message_complete,
-            on_chunk_header,
-            on_chunk_complete,
-        };
-        std::unique_ptr <details::http_parser> parser_;
-        std::string header_field_;
-        status state_{status::none};
     };
 }

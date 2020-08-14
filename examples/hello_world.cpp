@@ -46,13 +46,13 @@ int main(const int argc, const char **argv) {
             });
             g_server.emplace(ios, *server_endpoint);
             cppcoro::async_scope scope;
-            auto handle_conn = [](http::connection conn) mutable -> task<> {
+            auto handle_conn = [](http::server::connection_type conn) mutable -> task<> {
                 fmt::print("connection from: '{}'\n", conn.peer_address().to_string());
                 http::router router;
-                router.add_route<R"(/hello/(\w+))">().complete([](const std::string& who) -> task <std::tuple<http::status, std::string>> {
+                router.add_route<R"(/hello/(\w+))">().on_complete([](const std::string& who) -> task <std::tuple<http::status, std::string>> {
                     co_return std::tuple{http::status::HTTP_STATUS_OK, fmt::format("Hello {} !!", who)};
                 });
-                router.add_route<R"(/add/(\d+)/(\d+))">().complete([](int lhs, int rhs) -> task <std::tuple<http::status, std::string>> {
+                router.add_route<R"(/add/(\d+)/(\d+))">().on_complete([](int lhs, int rhs) -> task <std::tuple<http::status, std::string>> {
                     co_return std::tuple{http::status::HTTP_STATUS_OK, fmt::format("{}", lhs + rhs)};
                 });
                 while (true) {

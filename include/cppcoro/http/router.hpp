@@ -1,7 +1,7 @@
 #pragma once
 
 #include <variant>
-#include <cppcoro/details/router.hpp>
+#include <cppcoro/http/details/router.hpp>
 #include <cppcoro/http/http.hpp>
 #include <cppcoro/http/http_response.hpp>
 #include <cppcoro/http/http_request.hpp>
@@ -90,7 +90,7 @@ namespace cppcoro::http {
             }
 
             template<typename TaskT>
-            route &complete(TaskT &&handler) {
+            route &on_complete(TaskT &&handler) {
                 using traits = http::details::view_handler_traits<return_type, TaskT>;
                 using handler_return_type = typename traits::return_type::value_type;
 
@@ -248,16 +248,14 @@ namespace cppcoro::http {
                 co_return std::visit(details::overloaded{
                     [](std::tuple<http::status, std::string> &&stat_str) {
                         auto &[status, body] = stat_str;
-                        return http::response{
-                            status, {}, std::forward<std::string>(body)
-                        };
+                        return http::response{status, std::forward<std::string>(body)};
                     }, [](http::status &&status) {
                         return http::response{
                             status
                         };
                     }, [](std::string &&body) {
                         return http::response{
-                            http::status::HTTP_STATUS_OK, {}, std::forward<std::string>(body)
+                            http::status::HTTP_STATUS_OK, std::forward<std::string>(body), {}
                         };
                     }
                 }, co_await route.value()->do_complete());

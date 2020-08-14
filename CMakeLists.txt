@@ -70,10 +70,18 @@ add_library(${PROJECT_NAME} STATIC
   include/cppcoro/http/http.hpp
   include/cppcoro/http/http_request.hpp
   include/cppcoro/http/http_server.hpp
+  include/cppcoro/http/http_client.hpp
+  include/cppcoro/http/http_connection.hpp
+  include/cppcoro/http/router.hpp
+  include/cppcoro/http/route_parameter.hpp
   src/http.cpp
   )
 target_include_directories(${PROJECT_NAME} PUBLIC include)
 target_link_libraries(${PROJECT_NAME} PUBLIC cppcoro::cppcoro http_parser::http_parser ctre::ctre)
+target_precompile_headers(${PROJECT_NAME} INTERFACE
+  <ctre/functions.hpp>
+  <ctll/fixed_string.hpp>
+  )
 add_library(cppcoro::http ALIAS ${PROJECT_NAME})
 
 option(BUILD_EXAMPLES "Build examples" ON)

@@ -8,7 +8,6 @@
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
 #include <cppcoro/on_scope_exit.hpp>
-#include <cppcoro/details/router.hpp>
 
 using namespace cppcoro;
 
@@ -33,7 +32,7 @@ SCENARIO("router can handle arguments", "[cppcoro-net][router]") {
     };
     GIVEN("simple route without args") {
         auto &route = router.add_route<"/hello">();
-        route.complete([]() -> task<http::status> {
+        route.on_complete([]() -> task<http::status> {
             co_return http::status::HTTP_STATUS_OK;
         });
         WHEN("This route is hit") {
@@ -49,7 +48,7 @@ SCENARIO("router can handle arguments", "[cppcoro-net][router]") {
     }
     GIVEN("one arg route") {
         auto &route = router.add_route<R"(/hello/(\w+))">();
-        route.complete([](const std::string &who) -> task<std::tuple<http::status, std::string>> {
+        route.on_complete([](const std::string &who) -> task<std::tuple<http::status, std::string>> {
             co_return std::make_tuple(http::status::HTTP_STATUS_OK, fmt::format("Hello {}", who));
         });
         WHEN("This route is hit") {
@@ -61,7 +60,7 @@ SCENARIO("router can handle arguments", "[cppcoro-net][router]") {
     }
     GIVEN("two args route") {
         auto &route = router.add_route<R"(/hello/(\w+)/(\d+))">();
-        route.complete([](const std::string &who, int count) -> task<std::tuple<http::status, std::string>> {
+        route.on_complete([](const std::string &who, int count) -> task<std::tuple<http::status, std::string>> {
             co_return std::make_tuple(http::status::HTTP_STATUS_OK, fmt::format("Hello {} {}", who, count));
         });
         WHEN("This route is hit") {
