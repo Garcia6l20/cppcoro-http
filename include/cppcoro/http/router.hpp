@@ -28,10 +28,6 @@ namespace cppcoro::http {
 
         using return_type = response_variant;
 
-        struct not_found : std::exception
-        {
-        };
-
         router() = default;
 
         struct abs_route
@@ -56,9 +52,6 @@ namespace cppcoro::http {
             using handler_type = std::function<task<return_type>()>;
             using chunk_handler_type = std::function<void(std::string_view)>;
             using data_type = std::shared_ptr<void>;
-            struct not_matching : std::exception
-            {
-            };
 
             static void escape(std::string &input) {
                 std::regex special_chars{R"([-[\]{}()*+?.,\^$|#\s])"};
@@ -241,32 +234,36 @@ namespace cppcoro::http {
             return *static_cast<route_type *>(routes_.emplace_back(std::make_unique<route_type>()).get());
         }
 
-        abs_route &route_for(const std::string &url) {
+        std::optional<abs_route*> route_for(const std::string &url) {
             for (auto &route: routes_) {
                 if (route->match(url))
-                    return *route;
+                    return route.get();
             }
-            throw not_found();
+            return {};
         }
 
         cppcoro::task<http::response> process(const http::request &request) {
-            auto &route = route_for(request.url);
-            co_return std::visit(details::overloaded{
-                [](std::tuple<http::status, std::string> &&stat_str) {
-                    auto &[status, body] = stat_str;
-                    return http::response{
-                        status, {}, std::forward<std::string>(body)
-                    };
-                }, [](http::status &&status) {
-                    return http::response{
-                        status
-                    };
-                }, [](std::string &&body) {
-                    return http::response{
-                        http::status::HTTP_STATUS_OK, {}, std::forward<std::string>(body)
-                    };
-                }
-            }, co_await route.do_complete());
+            auto route = route_for(request.url);
+            if (route) {
+                co_return std::visit(details::overloaded{
+                    [](std::tuple<http::status, std::string> &&stat_str) {
+                        auto &[status, body] = stat_str;
+                        return http::response{
+                            status, {}, std::forward<std::string>(body)
+                        };
+                    }, [](http::status &&status) {
+                        return http::response{
+                            status
+                        };
+                    }, [](std::string &&body) {
+                        return http::response{
+                            http::status::HTTP_STATUS_OK, {}, std::forward<std::string>(body)
+                        };
+                    }
+                }, co_await route.value()->do_complete());
+            } else {
+                co_return http::response {http::status::HTTP_STATUS_NOT_FOUND};
+            }
         }
 
     private:

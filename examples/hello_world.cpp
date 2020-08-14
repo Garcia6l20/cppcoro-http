@@ -69,9 +69,6 @@ int main(const int argc, const char **argv) {
                         auto resp = co_await router.process(*req);
                         co_await conn.send(resp);
 
-                    } catch (http::router::not_found &) {
-                        http::response resp{http::status::HTTP_STATUS_NOT_FOUND};
-                        co_await conn.send(resp);
                     } catch (std::system_error &err) {
                         if (err.code() == std::errc::connection_reset) {
                             break;

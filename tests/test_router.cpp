@@ -43,7 +43,8 @@ SCENARIO("router can handle arguments", "[cppcoro-net][router]") {
         }
         AND_WHEN("An unexpected route is hit") {
             http::request request {"/fake", "body", {}};
-            REQUIRE_THROWS_AS(process_request(request), http::router::not_found);
+            http::response response = process_request(request);
+            REQUIRE(response.status == http::status::HTTP_STATUS_NOT_FOUND);
         }
     }
     GIVEN("one arg route") {
