@@ -1,16 +1,15 @@
 #pragma once
 
 #include <variant>
-#include <cppcoro/http/details/router.hpp>
-#include <cppcoro/http/http.hpp>
-#include <cppcoro/http/http_response.hpp>
-#include <cppcoro/http/http_request.hpp>
-
 #include <cppcoro/task.hpp>
+#include <cppcoro/http/http.hpp>
+#include <cppcoro/http/http_server.hpp>
+#include <cppcoro/http/details/router.hpp>
 
 #include <concepts>
 #include <ctre/functions.hpp>
 #include <ctll/fixed_string.hpp>
+#include <cppcoro/async_scope.hpp>
 
 namespace cppcoro::http {
 
@@ -269,6 +268,39 @@ namespace cppcoro::http {
         std::vector<std::unique_ptr<abs_route>> routes_;
     };
 
-//    using simple_router = base_router<_dumb_route_context, string_body, file_body, dynamic_body>;
+    class route_server : public server, public router {
+    public:
+        using server::server;
+        task<> serve() {
+            auto handle_conn = [this](http::server::connection_type conn) mutable -> task<> {
+                while (true) {
+                    try {
+                        // wait next connection request
+                        auto *req = co_await conn.next();
+                        if (req == nullptr)
+                            break; // connection closed
+                        // wait next router response
+                        auto resp = co_await process(*req);
+                        co_await conn.send(resp);
+                    } catch (std::system_error &err) {
+                        if (err.code() == std::errc::connection_reset) {
+                            break; // connection reset by peer
+                        } else {
+                            throw err;
+                        }
+                    } catch (operation_cancelled &) {
+                        break;
+                    }
+                }
+            };
+            async_scope scope;
+            try {
+                while (true) {
+                    scope.spawn(handle_conn(co_await listen()));
+                }
+            } catch (operation_cancelled &) {}
+            co_await scope.join();
+        }
+    };
 
 } // namespace xdev

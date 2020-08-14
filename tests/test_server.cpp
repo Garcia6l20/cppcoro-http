@@ -15,14 +15,11 @@
 
 using namespace cppcoro;
 
-auto do_serve = [](io_service &service, http::server& server) -> task<> {
-    auto _ = on_scope_exit([&service] {
-       service.stop();
-    });
-    auto handle_conn = [](http::server::connection_type conn) mutable -> task<> {
-        http::router router;
-        // route definition
-        auto &route = router.add_route<R"(/echo/(\w+))">();
+SCENARIO("echo server should work", "[cppcoro-net][server]") {
+    io_service ios;
+    http::route_server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
+    GIVEN("An echo server") {
+        auto &route = server.add_route<R"(/echo/(\w+))">();
         // complete handler
         route.on_complete([](const std::string &input) -> task<std::tuple<http::status, std::string>> {
             co_return std::tuple{
@@ -30,42 +27,15 @@ auto do_serve = [](io_service &service, http::server& server) -> task<> {
                 input
             };
         });
-        while (true) {
-            try {
-                // wait next connection request
-                auto *req = co_await conn.next();
-                if (req == nullptr)
-                    break; // connection closed
-                // wait next router response
-                auto resp = co_await router.process(*req);
-                co_await conn.send(resp);
-            } catch (std::system_error &err) {
-                if (err.code() == std::errc::connection_reset) {
-                    break; // connection reset by peer
-                } else {
-                    throw err;
-                }
-            } catch (operation_cancelled &) {
-                break;
-            }
-        }
-    };
-    async_scope scope;
-    try {
-        while (true) {
-            scope.spawn(handle_conn(co_await server.listen()));
-        }
-    } catch (operation_cancelled &) {}
-    co_await scope.join();
-};
-
-SCENARIO("echo server should work", "[cppcoro-net][server]") {
-    io_service ios;
-    GIVEN("An echo server") {
-        http::server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
         WHEN("...") {
             http::client client{ios};
-            sync_wait(when_all(do_serve(ios, server),
+            sync_wait(when_all(
+            [&]() -> task<> {
+                auto _ = on_scope_exit([&] {
+                    ios.stop();
+                });
+                co_await server.serve();
+            } (),
             [&]() -> task<> {
                 auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
                 auto response = co_await conn.post("/echo/hello", "");

@@ -3,6 +3,8 @@
  */
 #pragma once
 
+#include <fmt/format.h>
+
 #include <cppcoro/http/details/static_parser_handler.hpp>
 
 #include <stdexcept>

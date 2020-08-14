@@ -14,11 +14,15 @@
 #include <thread>
 
 namespace {
-    std::optional<cppcoro::http::server> g_server;
+    std::optional<cppcoro::http::route_server> g_server;
 
     void at_exit(int) {
-        if (g_server)
+        fmt::print("exit requested\n");
+        if (g_server) {
+            fmt::print("stopping server\n");
             g_server->stop();
+            fmt::print("done\n");
+        }
     }
 }
 
@@ -35,8 +39,12 @@ int main(const int argc, const char **argv) {
     std::signal(SIGTERM, at_exit);
     std::signal(SIGINT, at_exit);
 
-    auto th = std::thread([&] {
-        ios.process_events();
+    static const constinit int thread_count = 5;
+    std::array<std::thread, thread_count> thread_pool;
+    std::generate(begin(thread_pool), end(thread_pool), [&] {
+        return std::thread([&] {
+            ios.process_events();
+        });
     });
 
     (void) sync_wait(when_all(
@@ -45,51 +53,20 @@ int main(const int argc, const char **argv) {
                 ios.stop();
             });
             g_server.emplace(ios, *server_endpoint);
-            cppcoro::async_scope scope;
-            auto handle_conn = [](http::server::connection_type conn) mutable -> task<> {
-                fmt::print("connection from: '{}'\n", conn.peer_address().to_string());
-                http::router router;
-                router.add_route<R"(/hello/(\w+))">().on_complete([](const std::string& who) -> task <std::tuple<http::status, std::string>> {
-                    co_return std::tuple{http::status::HTTP_STATUS_OK, fmt::format("Hello {} !!", who)};
-                });
-                router.add_route<R"(/add/(\d+)/(\d+))">().on_complete([](int lhs, int rhs) -> task <std::tuple<http::status, std::string>> {
-                    co_return std::tuple{http::status::HTTP_STATUS_OK, fmt::format("{}", lhs + rhs)};
-                });
-                while (true) {
-                    try {
-                        auto req = co_await conn.next();
-                        if (req == nullptr)
-                            break;
-                        fmt::print("url : {}\n", req->url);
-                        fmt::print("method: {}\n", req->method_str());
-                        fmt::print("headers:\n");
-                        for (auto &[field, value] : req->headers) {
-                            fmt::print(" - {}: {}\n", field, value);
-                        }
-                        auto resp = co_await router.process(*req);
-                        co_await conn.send(resp);
-
-                    } catch (std::system_error &err) {
-                        if (err.code() == std::errc::connection_reset) {
-                            break;
-                        } else {
-                            throw err;
-                        }
-                    }
-                }
-                std::cout << conn.peer_address().to_string() << " disconnected\n";
-            };
-            while (true) {
-                scope.spawn(handle_conn(co_await g_server->listen()));
-            }
-            co_return;
+            g_server->add_route<R"(/hello/(\w+))">().on_complete([](const std::string& who) -> task <std::tuple<http::status, std::string>> {
+                fmt::print("thread id: {}\n", std::this_thread::get_id());
+                co_return std::tuple{http::status::HTTP_STATUS_OK, fmt::format("Hello {} !!", who)};
+            });
+            g_server->add_route<R"(/add/(\d+)/(\d+))">().on_complete([](int lhs, int rhs) -> task <std::tuple<http::status, std::string>> {
+                co_return std::tuple{http::status::HTTP_STATUS_OK, fmt::format("{}", lhs + rhs)};
+            });
+            co_await g_server->serve();
         }()
-        /*, [&]() -> task<> {
-            ios.process_events();
-            co_return;
-        }()//*/
     ));
-    th.join();
+
+    std::for_each(begin(thread_pool), end(thread_pool), [](auto &&th) {
+        th.join();
+    });
     std::cout << "Bye !\n";
     return 0;
 }
