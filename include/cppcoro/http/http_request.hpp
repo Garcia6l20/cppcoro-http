@@ -16,7 +16,7 @@ namespace cppcoro::http {
     public:
 
         request() {
-            init_parser(details::http_parser_type::HTTP_REQUEST);
+            init_parser(detail::http_parser_type::HTTP_REQUEST);
         }
 
         request(std::string url, std::string body, headers headers)
@@ -24,14 +24,14 @@ namespace cppcoro::http {
             , body{std::move(body)}
             , headers{std::move(headers)} {}
 
-        request(http::method method, std::string &&url, std::string &&body, headers &&headers = {})
+        request(http::method method, std::string &&url, std::string &&body = {}, headers &&headers = {})
             : url{std::forward<std::string>(url)}
             , body{std::forward<std::string>(body)}
             , headers{std::forward<http::headers>(headers)} {
             this->method = method;
         }
 
-        request(request &&other) noexcept = delete;
+        request(request &&other) noexcept = default;
 
 //                : headers{std::move(other.headers)}
 //                , url{std::move(other.url)}

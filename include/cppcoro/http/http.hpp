@@ -8,22 +8,22 @@
 
 namespace cppcoro::http {
 
-    namespace details {
+    namespace detail {
         #include <http_parser.h>
     }
 
     enum class method
     {
-        get = details::HTTP_GET,
-        put = details::HTTP_PUT,
-        del = details::HTTP_DELETE,
-        post = details::HTTP_POST,
-        head = details::HTTP_HEAD,
-        options = details::HTTP_OPTIONS,
-        patch = details::HTTP_PATCH,
+        get = detail::HTTP_GET,
+        put = detail::HTTP_PUT,
+        del = detail::HTTP_DELETE,
+        post = detail::HTTP_POST,
+        head = detail::HTTP_HEAD,
+        options = detail::HTTP_OPTIONS,
+        patch = detail::HTTP_PATCH,
         unknown
     };
 
-    using status = details::http_status;
+    using status = detail::http_status;
     using headers = std::map<std::string, std::string>;
 }

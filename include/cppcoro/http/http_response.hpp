@@ -15,8 +15,14 @@ namespace cppcoro::http {
         std::string body;
 
         response() {
-            init_parser(details::http_parser_type::HTTP_RESPONSE);
+            init_parser(detail::http_parser_type::HTTP_RESPONSE);
         }
+
+        response(response && other) noexcept = default;
+        response &operator=(response && other) noexcept = default;
+        response(const response & other) noexcept = delete;
+        response &operator=(const response & other) noexcept = delete;
+
         response(http::status status, std::string &&body, http::headers &&headers = {})
             : status{status}
             , body{std::forward<std::string>(body)}

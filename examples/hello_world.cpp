@@ -5,7 +5,7 @@
 #include <cppcoro/when_all.hpp>
 #include <cppcoro/async_scope.hpp>
 #include <cppcoro/http/http_server.hpp>
-#include <cppcoro/http/router.hpp>
+#include <cppcoro/http/route_controller.hpp>
 
 #include <fmt/printf.h>
 
@@ -13,16 +13,44 @@
 #include <iostream>
 #include <thread>
 
-namespace {
-    std::optional<cppcoro::http::route_server> g_server;
+using namespace cppcoro;
 
-    void at_exit(int) {
-        fmt::print("exit requested\n");
-        if (g_server) {
-            fmt::print("stopping server\n");
-            g_server->stop();
-            fmt::print("done\n");
-        }
+struct session {
+    int id = std::rand();
+};
+
+struct add_controller : http::route_controller<
+    R"(/add/(\d+)/(\d+))",  // route definition
+    session,
+    add_controller>
+{
+    auto on_get(int lhs, int rhs) -> task<http::response> {
+        co_return http::response{http::status::HTTP_STATUS_OK,
+                                 fmt::format("{}", lhs + rhs)};
+    }
+};
+
+struct hello_controller : http::route_controller<
+    R"(/hello/(\w+))",  // route definition
+    session,
+    hello_controller>
+{
+    auto on_get(const std::string &who) -> task<http::response> {
+        co_return http::response{http::status::HTTP_STATUS_OK,
+                                 fmt::format("Hello {}", who)};
+    }
+};
+
+using hello_server = http::controller_server<session, hello_controller, add_controller>;
+
+std::optional<hello_server> g_server;
+
+void at_exit(int) {
+    fmt::print("exit requested\n");
+    if (g_server) {
+        fmt::print("stopping server\n");
+        g_server->stop();
+        fmt::print("done\n");
     }
 }
 
@@ -34,39 +62,35 @@ int main(const int argc, const char **argv) {
     auto server_endpoint = net::ip_endpoint::from_string(args.empty() ? "127.0.0.1:4242" : args.at(0));
     fmt::print("listening at '{}'\n", server_endpoint->to_string());
 
-    io_service ios;
-
     std::signal(SIGTERM, at_exit);
     std::signal(SIGINT, at_exit);
+
+    io_service service;
 
     static const constinit int thread_count = 5;
     std::array<std::thread, thread_count> thread_pool;
     std::generate(begin(thread_pool), end(thread_pool), [&] {
         return std::thread([&] {
-            ios.process_events();
+            service.process_events();
         });
     });
 
-    (void) sync_wait(when_all(
-        [&]() -> task<> {
-            auto _ = on_scope_exit([&] {
-                ios.stop();
-            });
-            g_server.emplace(ios, *server_endpoint);
-            g_server->add_route<R"(/hello/(\w+))">().on_complete([](const std::string& who) -> task <std::tuple<http::status, std::string>> {
-                fmt::print("thread id: {}\n", std::this_thread::get_id());
-                co_return std::tuple{http::status::HTTP_STATUS_OK, fmt::format("Hello {} !!", who)};
-            });
-            g_server->add_route<R"(/add/(\d+)/(\d+))">().on_complete([](int lhs, int rhs) -> task <std::tuple<http::status, std::string>> {
-                co_return std::tuple{http::status::HTTP_STATUS_OK, fmt::format("{}", lhs + rhs)};
-            });
-            co_await g_server->serve();
-        }()
-    ));
+    auto do_serve = [&]() -> task<> {
+        auto _ = on_scope_exit([&] {
+            service.stop();
+        });
+        g_server.emplace(
+            service,
+            *server_endpoint);
+        co_await g_server->serve();
+    };
+
+    (void) sync_wait(do_serve());
 
     std::for_each(begin(thread_pool), end(thread_pool), [](auto &&th) {
         th.join();
     });
+
     std::cout << "Bye !\n";
     return 0;
 }

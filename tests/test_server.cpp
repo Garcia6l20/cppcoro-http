@@ -3,30 +3,32 @@
 
 #include <fmt/format.h>
 
-#include <cppcoro/http/router.hpp>
 #include <cppcoro/http/http_server.hpp>
 #include <cppcoro/http/http_client.hpp>
 #include <cppcoro/io_service.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
-#include <cppcoro/async_scope.hpp>
 #include <cppcoro/on_scope_exit.hpp>
-#include <thread>
+#include <cppcoro/http/route_controller.hpp>
 
 using namespace cppcoro;
 
-SCENARIO("echo server should work", "[cppcoro-net][server]") {
+SCENARIO("echo server should work", "[cppcoro-http][server]") {
     io_service ios;
-    http::route_server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
+    struct session {};
+    struct echo_controller : http::route_controller<
+        R"(/echo/(\w+))",  // route definition
+        session,
+        echo_controller>
+    {
+        auto on_get(const std::string &what) -> task<http::response> {
+            co_return http::response{http::status::HTTP_STATUS_OK,
+                                     fmt::format("{}", what)};
+        }
+    };
+    using echo_server = http::controller_server<session, echo_controller>;
+    echo_server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
     GIVEN("An echo server") {
-        auto &route = server.add_route<R"(/echo/(\w+))">();
-        // complete handler
-        route.on_complete([](const std::string &input) -> task<std::tuple<http::status, std::string>> {
-            co_return std::tuple{
-                http::status::HTTP_STATUS_OK,
-                input
-            };
-        });
         WHEN("...") {
             http::client client{ios};
             sync_wait(when_all(
@@ -38,7 +40,7 @@ SCENARIO("echo server should work", "[cppcoro-net][server]") {
             } (),
             [&]() -> task<> {
                 auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
-                auto response = co_await conn.post("/echo/hello", "");
+                auto response = co_await conn.get("/echo/hello", "");
                 REQUIRE(response->body == "hello");
                 server.stop();
             }(),

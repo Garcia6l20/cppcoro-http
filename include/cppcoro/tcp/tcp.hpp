@@ -68,6 +68,8 @@ namespace cppcoro {
                 cs_.request_cancellation();
             }
 
+            auto token() { return cs_.token(); }
+
         protected:
             io_service &ios_;
             net::ip_endpoint endpoint_;
@@ -86,8 +88,8 @@ namespace cppcoro {
                 : ios_{ios} {
             }
 
-            task<connection> connect(net::ip_endpoint &&endpoint) {
-                auto sock = net::create_tcp_socket<false>(ios_, std::forward<net::ip_endpoint>(endpoint));
+            task<connection> connect(net::ip_endpoint const&endpoint) {
+                auto sock = net::create_tcp_socket<false>(ios_, endpoint);
                 co_await sock.connect(endpoint, cs_.token());
                 co_return connection{std::move(sock), cs_.token()};
             }

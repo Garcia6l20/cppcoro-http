@@ -6,6 +6,8 @@
 #include <vector>
 #include <charconv>
 
+#include <ctll.hpp>
+
 namespace cppcoro::http {
 
     template <typename T>
@@ -17,9 +19,8 @@ namespace cppcoro::http {
         static std::string load(const std::string_view& input) {
             return {input.data(), input.data() + input.size()};
         }
-        static std::string pattern() {
-            return R"(.+(?=/)|.+)";
-        }
+
+        static constexpr auto pattern = ctll::fixed_string{R"(.+(?=/)|.+)"};
     };
 
     template <>
@@ -28,9 +29,7 @@ namespace cppcoro::http {
         static std::filesystem::path load(const std::string_view& input) {
             return {input.data()};
         }
-        static std::string pattern() {
-            return R"(.+)";
-        }
+        static constexpr auto pattern = ctll::fixed_string{R"(.+)"};
     };
 
     template <>
@@ -41,9 +40,7 @@ namespace cppcoro::http {
             std::from_chars(input.data(), input.data() + input.size(), result);
             return result;
         }
-        static std::string pattern() {
-            return R"(\d+)";
-        }
+        static constexpr auto pattern = ctll::fixed_string{R"(\d+)"};
     };
 
     template <>
@@ -54,9 +51,7 @@ namespace cppcoro::http {
             std::from_chars(input.data(), input.data() + input.size(), result);
             return result;
         }
-        static std::string pattern() {
-            return R"(\d+\.?\d*)";
-        }
+        static constexpr auto pattern = ctll::fixed_string{R"(\d+\.?\d*)"};
     };
 
     template <>
@@ -69,9 +64,7 @@ namespace cppcoro::http {
                 });
             });
         }
-        static std::string pattern() {
-            return R"(\w+)";
-        }
+        static constexpr auto pattern = ctll::fixed_string{R"(\w+)"};
     };
 
 }  // namespace xdev::net

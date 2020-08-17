@@ -5,7 +5,7 @@
 #include <tuple>
 #include <type_traits>
 
-namespace cppcoro::details {
+namespace cppcoro::detail {
 
     /**
      * Useful template for resolving index of variadic template arguments

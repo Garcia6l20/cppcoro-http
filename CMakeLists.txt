@@ -72,7 +72,8 @@ add_library(${PROJECT_NAME} STATIC
   include/cppcoro/http/http_server.hpp
   include/cppcoro/http/http_client.hpp
   include/cppcoro/http/http_connection.hpp
-  include/cppcoro/http/router.hpp
+  include/cppcoro/http/request_processor.hpp
+  include/cppcoro/http/route_controller.hpp
   include/cppcoro/http/route_parameter.hpp
   src/http.cpp
   )

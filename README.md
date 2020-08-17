@@ -5,22 +5,38 @@ It is built on top of [cppcoro](https://github.com/lewissbaker/cppcoro) library.
 
 ## HTTP Server
 
-- Example:
+- example:
 
 ```c++
+struct session {
+    int id = std::rand();
+};
+
+struct hello_controller : http::route_controller<
+    R"(/hello/(\w+))",  // route definition
+    session,
+    hello_controller>
+{
+    // method handlers
+    auto on_post(const std::string &who) -> task<http::response> {
+        co_return http::response{http::status::HTTP_STATUS_OK,
+            fmt::format("post at {}: hello {}", session().id, who)};
+    }
+    auto on_get(const std::string &who) -> task<http::response> {
+        co_return http::response{http::status::HTTP_STATUS_OK,
+            fmt::format("get at {}: hello {}", session().id, who)};
+    }
+};
+
 io_service service;
 
 auto do_serve = [&]() -> task<> {
-    http::route_server server{service, *net::ip_endpoint::from_string("127.0.0.1:4242")};
-    // route definition
-    auto &route = server.add_route<R"(/hello/(\w+))">();
-    // complete handler
-    route.on_complete([](const std::string &who) -> task<std::tuple<http::status, std::string>> {
-        co_return std::tuple{
-            http::status::HTTP_STATUS_OK,
-            fmt::format("Hello {} !!", who)
-        };
+    auto _ = on_scope_exit([&] {
+        ios.stop();
     });
+    http::controller_server<session, hello_controller> server{
+        service,
+        *net::ip_endpoint::from_string("127.0.0.1:4242")};
     co_await server.serve();
 };
 (void) sync_wait(when_all(

@@ -5,11 +5,11 @@ FetchContent_Declare(_fetch_catch
 FetchContent_MakeAvailable(_fetch_catch)
 include(${_fetch_catch_SOURCE_DIR}/contrib/Catch.cmake)
 
-add_executable(test_router test_router.cpp)
-target_link_libraries(test_router PRIVATE cppcoro::http Catch2::Catch2 fmt::fmt)
-catch_discover_tests(test_router)
+link_libraries(cppcoro::http Catch2::Catch2 fmt::fmt)
 
+add_executable(test_route_controller test_route_controller.cpp)
+catch_discover_tests(test_route_controller)
 
 add_executable(test_server test_server.cpp)
-target_link_libraries(test_server PRIVATE cppcoro::http Catch2::Catch2 fmt::fmt)
 catch_discover_tests(test_server)
+

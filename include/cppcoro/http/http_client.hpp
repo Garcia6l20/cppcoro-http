@@ -22,8 +22,8 @@ namespace cppcoro::http {
         using tcp::client::stop;
         using connection_type = connection<client>;
 
-        task<connection_type> connect(net::ip_endpoint &&endpoint) {
-            connection_type conn{*this, std::move(co_await tcp::client::connect(std::forward<net::ip_endpoint>(endpoint)))};
+        task<connection_type> connect(net::ip_endpoint const &endpoint) {
+            connection_type conn{*this, std::move(co_await tcp::client::connect(endpoint))};
             co_return conn;
         }
 
