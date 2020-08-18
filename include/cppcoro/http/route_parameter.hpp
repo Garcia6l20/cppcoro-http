@@ -24,6 +24,16 @@ namespace cppcoro::http {
     };
 
     template <>
+    struct route_parameter<std::string_view> {
+        static constexpr int group_count() { return 0; }
+        static std::string_view load(const std::string_view& input) {
+            return {input.data(), input.size()};
+        }
+
+        static constexpr auto pattern = ctll::fixed_string{R"(.+(?=/)|.+)"};
+    };
+
+    template <>
     struct route_parameter<std::filesystem::path> {
         static constexpr int group_count() { return 0; }
         static std::filesystem::path load(const std::string_view& input) {

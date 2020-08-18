@@ -21,11 +21,11 @@ int main() {
         hello_controller>
     {
         // method handlers
-        auto on_post(const std::string &who) -> task<http::response> {
+        auto on_post(std::string_view who) -> task<http::response> {
             co_return http::response{http::status::HTTP_STATUS_OK,
                                      fmt::format("post at {}: hello {}", session().id, who)};
         }
-        auto on_get(const std::string &who) -> task<http::response> {
+        auto on_get(std::string_view who) -> task<http::response> {
             co_return http::response{http::status::HTTP_STATUS_OK,
                                      fmt::format("get at {}: hello {}", session().id, who)};
         }

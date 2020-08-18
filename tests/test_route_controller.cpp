@@ -20,7 +20,7 @@ struct session
 
 struct hello_controller : cppcoro::http::route_controller<R"(/hello/(\w+))", session, hello_controller>
 {
-    auto on_post(const std::string &who) -> task<http::response> {
+    auto on_post(std::string_view who) -> task<http::response> {
         fmt::print("post on {}\n", session().id);
         co_return http::response{http::status::HTTP_STATUS_OK, fmt::format("post: {}", who)};
     }
