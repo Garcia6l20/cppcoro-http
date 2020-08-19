@@ -5,6 +5,7 @@
 #include <cppcoro/http/http_request.hpp>
 #include <cppcoro/http/http_response.hpp>
 #include <cppcoro/task.hpp>
+#include <cppcoro/when_all.hpp>
 
 #include <charconv>
 #include <cstring>
@@ -59,7 +60,7 @@ namespace cppcoro::http {
                 if (!done) {
                     parser.parse(buffer_.data(), ret);
                     if(parser) {
-                        parser.load(result);
+                        co_await parser.load(result);
                         co_return result;
                     }
                 } else {
@@ -79,16 +80,16 @@ namespace cppcoro::http {
         template <typename MessageType>
         task<> send(MessageType &&to_send) {
             auto header = to_send.build_header();
+//            auto [size, body] = co_await when_all(
+//                sock_.send(header.data(), header.size(), ct_),
+//                to_send.read_body()
+//            )
             auto size = co_await sock_.send(header.data(), header.size(), ct_);
             assert(size == header.size());
-            if constexpr (detail::ro_basic_body<MessageType>) {
-                auto body = to_send.read_body();
-                if (!body.empty()) {
-                    size = co_await sock_.send(body.data(), body.size(), ct_);
-                    assert(size == to_send.body.size());
-                }
-            } else {
-                throw std::runtime_error("not implemented");
+            auto body = co_await to_send.read_body();
+            if (!body.empty()) {
+                size = co_await sock_.send(body.data(), body.size(), ct_);
+                assert(size == body.size());
             }
         }
 

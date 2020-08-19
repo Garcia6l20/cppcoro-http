@@ -12,6 +12,8 @@ namespace cppcoro::http {
 
     namespace detail {
 
+        enum { max_body_size = 1024 };
+
         struct base_message
         {
             base_message() = default;
@@ -30,6 +32,8 @@ namespace cppcoro::http {
             http::headers headers;
 
             virtual std::string build_header() = 0;
+            virtual task<std::string_view> read_body(size_t max_size = max_body_size) = 0;
+            virtual task<size_t> write_body(std::string_view data) = 0;
         };
 
         struct base_request : base_message
@@ -63,7 +67,6 @@ namespace cppcoro::http {
                 : base_message{std::forward<http::headers>(headers)}, status{status} {}
 
             http::status status;
-
         };
 
         template<bool _is_response, is_body BodyT>
@@ -93,21 +96,21 @@ namespace cppcoro::http {
                 static_cast<base_type>(*this) = std::move(base);
             }
 
-            std::string_view read_body(size_t max_size) {
+            task<std::string_view> read_body(size_t max_size = max_body_size) final {
                 if constexpr (ro_basic_body<BodyT>) {
-                    return {body_access.data(), body_access.size()};
+                    co_return std::string_view{body_access.data(), body_access.size()};
                 } else {
-                    return body_access.read(max_size);
+                    co_return body_access.read(max_size);
                 }
             }
 
-            size_t write_body(std::string_view data) {
+            task<size_t> write_body(std::string_view data) final {
                 if constexpr (wo_basic_body<BodyT>) {
                     auto size = data.size();
                     this->body_access = BodyT{data.data(), size};
-                    return size;
+                    co_return size;
                 } else {
-                    return this->body_access.write(data);
+                    co_return this->body_access.write(data);
                 }
             }
 

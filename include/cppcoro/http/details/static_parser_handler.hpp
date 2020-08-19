@@ -92,7 +92,7 @@ namespace cppcoro::http::detail {
         }
 
         template <typename MessageT>
-        void load(MessageT &message) {
+        task<> load(MessageT &message) {
             static_assert(is_request == MessageT::is_request);
             if constexpr (is_request) {
                 message.method = method();
@@ -101,7 +101,7 @@ namespace cppcoro::http::detail {
                 message.status = status_code();
             }
             if (!this->body_.empty()) {
-                message.write_body(body_);
+                co_await message.write_body(body_);
             }
         }
 
