@@ -24,8 +24,8 @@ struct add_controller : http::route_controller<
     session,
     add_controller>
 {
-    auto on_get(int lhs, int rhs) -> task<http::response> {
-        co_return http::response{http::status::HTTP_STATUS_OK,
+    auto on_get(int lhs, int rhs) -> task<http::string_response> {
+        co_return http::string_response{http::status::HTTP_STATUS_OK,
                                  fmt::format("{}", lhs + rhs)};
     }
 };
@@ -35,8 +35,8 @@ struct hello_controller : http::route_controller<
     session,
     hello_controller>
 {
-    auto on_get(const std::string &who) -> task<http::response> {
-        co_return http::response{http::status::HTTP_STATUS_OK,
+    auto on_get(const std::string &who) -> task<http::string_response> {
+        co_return http::string_response{http::status::HTTP_STATUS_OK,
                                  fmt::format("Hello {}", who)};
     }
 };

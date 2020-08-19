@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cppcoro/http/http.hpp>
+#include <cppcoro/task.hpp>
 
 #include <memory>
 

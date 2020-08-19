@@ -20,13 +20,13 @@ struct session
 
 struct hello_controller : cppcoro::http::route_controller<R"(/hello/(\w+))", session, hello_controller>
 {
-    auto on_post(std::string_view who) -> task<http::response> {
+    auto on_post(std::string_view who) -> task<http::string_response> {
         fmt::print("post on {}\n", session().id);
-        co_return http::response{http::status::HTTP_STATUS_OK, fmt::format("post: {}", who)};
+        co_return http::string_response{http::status::HTTP_STATUS_OK, fmt::format("post: {}", who)};
     }
-    auto on_get(const std::string &who) -> task<http::response> {
+    auto on_get(const std::string &who) -> task<http::string_response> {
         fmt::print("get on {}\n", session().id);
-        co_return http::response{http::status::HTTP_STATUS_OK, fmt::format("get: {}", who)};
+        co_return http::string_response{http::status::HTTP_STATUS_OK, fmt::format("get: {}", who)};
     }
 };
 
@@ -52,9 +52,9 @@ SCENARIO("route controller are easy to use", "[cppcoro-http][router]") {
                 using namespace std::chrono_literals;
                 auto conn = co_await client.connect(*test_endpoint);
                 auto resp = co_await conn.post("/hello/world");
-                REQUIRE(resp->body == "post: world");
+                REQUIRE(co_await resp->read_body() == "post: world");
                 resp = co_await conn.get("/hello/world");
-                REQUIRE(resp->body == "get: world");
+                REQUIRE(co_await resp->read_body() == "get: world");
             }(),
             [&]() -> task<> {
                 ios.process_events();
