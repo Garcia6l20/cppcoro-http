@@ -7,9 +7,12 @@ include(${_fetch_catch_SOURCE_DIR}/contrib/Catch.cmake)
 
 link_libraries(cppcoro::http Catch2::Catch2 fmt::fmt)
 
-add_executable(test_route_controller test_route_controller.cpp)
-catch_discover_tests(test_route_controller)
+macro(basic_test _filename)
+  get_filename_component(_target ${_filename} NAME_WE)
+  add_executable(${_target} ${_filename})
+  catch_discover_tests(${_target})
+endmacro()
 
-add_executable(test_server test_server.cpp)
-catch_discover_tests(test_server)
-
+basic_test(test_requests.cpp)
+basic_test(test_route_controller.cpp)
+basic_test(test_server.cpp)

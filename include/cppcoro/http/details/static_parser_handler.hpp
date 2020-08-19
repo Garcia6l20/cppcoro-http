@@ -4,21 +4,48 @@
 
 #include <memory>
 
-namespace cppcoro::http {
-    template<typename T>
-    class connection;
-}
-
 namespace cppcoro::http::detail {
-    template <typename BaseT>
-    class static_parser_handler {
-    public:
-        http::method method;
 
+    template<typename BodyT>
+    concept ro_chunked_body = requires(BodyT body) {
+        { body.read(size_t(0)) } -> std::same_as<std::string_view>;
+    };
+    template<typename BodyT>
+    concept wo_chunked_body = requires(BodyT body) {
+        { body.write(std::string_view{}) } -> std::same_as<size_t>;
+    };
+    template<typename BodyT>
+    concept rw_chunked_body = ro_chunked_body<BodyT> and wo_chunked_body<BodyT>;
+
+    template<typename BodyT>
+    concept ro_basic_body = requires(BodyT body) {
+        { body.data() } -> std::same_as<char *>;
+        { body.size() } -> std::same_as<size_t>;
+    };
+    template<typename BodyT>
+    concept wo_basic_body = requires(BodyT body) {
+        { BodyT((char *) nullptr, (char *) nullptr) } -> std::same_as<BodyT>;
+    };
+    template<typename BodyT>
+    concept rw_basic_body = ro_basic_body<BodyT> and wo_basic_body<BodyT>;
+
+    template<typename BodyT>
+    concept is_body = ro_basic_body<BodyT> and wo_basic_body<BodyT>;
+
+    template<typename BodyT>
+    concept readable_body = ro_basic_body<BodyT> or ro_chunked_body<BodyT>;
+
+    template<typename BodyT>
+    concept writeable_body = wo_basic_body<BodyT> or wo_chunked_body<BodyT>;
+
+    template <bool is_request>
+    class static_parser_handler {
+        using self_type = static_parser_handler<is_request>;
+
+    public:
         static_parser_handler() = default;
         static_parser_handler(static_parser_handler &&other) noexcept
             : parser_{std::move(other.parser_)}
-            , method{std::move(other.method)}
             , header_field_{std::move(other.header_field_)}
             , state_{std::move(other.state_)} {
             if (parser_) {
@@ -27,7 +54,6 @@ namespace cppcoro::http::detail {
         }
         static_parser_handler& operator=(static_parser_handler &&other) noexcept {
             parser_ = std::move(other.parser_);
-            method = std::move(other.method);
             header_field_ = std::move(other.header_field_);
             state_ = std::move(other.state_);
             if (parser_) {
@@ -38,11 +64,11 @@ namespace cppcoro::http::detail {
         static_parser_handler(const static_parser_handler &) noexcept = delete;
         static_parser_handler& operator=(const static_parser_handler &) noexcept = delete;
 
-        auto method_str() const {
-            return http_method_str(static_cast<detail::http_method>(method));
+        operator bool() const {
+            return state_ == status::on_message_complete;
         }
 
-        bool parse(const char *data, size_t len) {
+        const void parse(const char *data, size_t len) {
             const auto count = execute_parser(data, len);
             if (count < len) {
                 throw std::runtime_error{
@@ -52,8 +78,31 @@ namespace cppcoro::http::detail {
 //            if (!parser_->upgrade &&
 //                parser_->status != detail::s_message_done)
 //                return false;
-            method = static_cast<http::method>(parser_->method);
-            return state_ == status::on_message_complete;
+        }
+
+        const void parse(std::string_view input) {
+            parse(input.data(), input.size());
+        }
+
+        auto method() const {
+            return static_cast<http::method>(parser_->method);
+        }
+        auto status_code() const {
+            return static_cast<http::status>(parser_->status_code);
+        }
+
+        template <typename MessageT>
+        void load(MessageT &message) {
+            static_assert(is_request == MessageT::is_request);
+            if constexpr (is_request) {
+                message.method = method();
+                message.path = url_;
+            } else {
+                message.status = status_code();
+            }
+            if (!this->body_.empty()) {
+                message.write_body(body_);
+            }
         }
 
     protected:
@@ -72,7 +121,7 @@ namespace cppcoro::http::detail {
         };
 
         inline static auto &instance(detail::http_parser *parser) {
-            return *static_cast<BaseT *>(parser->data);
+            return *static_cast<self_type *>(parser->data);
         }
 
         static inline int on_message_begin(detail::http_parser *parser)  {
@@ -83,7 +132,7 @@ namespace cppcoro::http::detail {
 
         static inline int on_url(detail::http_parser *parser, const char *data, size_t len) {
             auto &this_ = instance(parser);
-            this_.url = {data, data + len};
+            this_.url_ = {data, data + len};
             this_.state_ = status::on_url;
             return 0;
         }
@@ -97,7 +146,7 @@ namespace cppcoro::http::detail {
         static inline int on_header_field(detail::http_parser *parser, const char *data, size_t len) {
             auto &this_ = instance(parser);
             this_.state_ = status::on_headers;
-            this_.header_field_ = {data, data + len};
+            this_.header_field_ = {data, len};
             return 0;
         }
 
@@ -105,7 +154,7 @@ namespace cppcoro::http::detail {
             auto &this_ = instance(parser);
 
             this_.state_ = status::on_headers;
-            this_.headers[std::move(this_.header_field_)] = {data, data + len};
+            this_.headers_[std::string{this_.header_field_}] = {data, data + len};
             return 0;
         }
 
@@ -117,7 +166,7 @@ namespace cppcoro::http::detail {
 
         static inline int on_body(detail::http_parser *parser, const char *data, size_t len) {
             auto &this_ = instance(parser);
-            this_.body = {data, data + len};
+            this_.body_ = {data, len};
             this_.state_ = status::on_body;
             return 0;
         }
@@ -140,23 +189,20 @@ namespace cppcoro::http::detail {
             return 0;
         }
 
-        void init_parser(detail::http_parser_type type) {
+        void init_parser() {
             if (!parser_) {
                 parser_ = std::make_unique<detail::http_parser>();
-                http_parser_init(parser_.get(), type);
+                if constexpr (is_request)
+                    http_parser_init(parser_.get(), detail::http_parser_type::HTTP_REQUEST);
+                else http_parser_init(parser_.get(), detail::http_parser_type::HTTP_RESPONSE);
                 parser_->data = this;
             }
         }
 
         auto execute_parser(const char *data, size_t len) {
+            init_parser();
             return http_parser_execute(parser_.get(), &http_parser_settings_, data, len);
         }
-
-
-        [[nodiscard]] status state() const { return state_; }
-
-        template<typename T>
-        friend class cppcoro::http::connection;
 
     private:
         std::unique_ptr <detail::http_parser> parser_;
@@ -172,7 +218,10 @@ namespace cppcoro::http::detail {
             on_chunk_header,
             on_chunk_complete,
         };
-        std::string header_field_;
         status state_{status::none};
+        std::string_view header_field_;
+        std::string_view url_;
+        std::string_view body_;
+        http::headers headers_;
     };
 }

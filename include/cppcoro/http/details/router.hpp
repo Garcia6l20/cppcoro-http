@@ -25,6 +25,7 @@ namespace cppcoro::http::detail {
     {
         using parameters_tuple_type = typename FunctionTraitsT::template parameters_tuple<PredicateType>;
         using data_type = typename parameters_tuple_type::tuple_type;
+        using await_result_type = typename FunctionTraitsT::return_type::value_type;
         static const constexpr size_t data_arity = std::tuple_size_v<data_type>;
 
         static constexpr auto make_tuple = parameters_tuple_type::make;

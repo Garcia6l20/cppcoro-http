@@ -36,7 +36,7 @@ namespace cppcoro::http {
         {
             virtual ~abstract_route_controller() = default;
 
-            virtual task<http::response> process(http::request &request) = 0;
+            virtual task<detail::base_response&> process(detail::base_request &request) = 0;
 
             void *session_ = nullptr;
         };
@@ -54,20 +54,23 @@ namespace cppcoro::http {
             return *static_cast<Derived *>(this);
         }
 
-        using handler_type = std::function<cppcoro::task<http::response>(route_controller&)>;
+        using handler_type = std::function<cppcoro::task<detail::base_response&>(route_controller&)>;
         std::map<http::method, handler_type> handlers_;
+        http::string_response error_response_;
 
         template<http::method method, typename HandlerT>
         void register_handler(HandlerT &&handler) {
             using traits = detail::function_traits<HandlerT>;
-            using handler_trait = detail::view_handler_traits<cppcoro::task<http::response>,
+            using handler_trait = detail::view_handler_traits<cppcoro::task<detail::base_response>,
                 detail::function_detail::parameters_tuple_all_enabled,
                 HandlerT>;
-            auto data = std::make_shared<typename handler_trait::data_type>();
-            handlers_[method] = [data,
-                handler = std::forward<HandlerT>(handler)](route_controller &self) mutable -> task<http::response> {
+            handlers_[method] = [data = std::make_shared<typename handler_trait::data_type>(),
+                                 response = std::make_shared<typename handler_trait::await_result_type>(),
+                                 handler = std::forward<HandlerT>(handler)]
+                (route_controller &self) mutable -> cppcoro::task<detail::base_response&> {
                 handler_trait::load_data(self.match_result_, *data);
-                co_return co_await std::apply(handler, std::tuple_cat(std::make_tuple(&self.self()), *data));
+                *response = co_await std::apply(handler, std::tuple_cat(std::make_tuple(&self.self()), *data));
+                co_return *response;
             };
         };
 
@@ -102,35 +105,37 @@ namespace cppcoro::http {
 #undef __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL
         }
 
-        task<http::response> process(http::request &request) override {
-            if (match(request.url)) {
+        task<detail::base_response&> process(detail::base_request &request) override {
+            if (match(request.path)) {
                 if (handlers_.contains(request.method)) {
-                    auto result = co_await handlers_.at(request.method)(*this);
-                    co_return std::move(result);
+                    auto &result = co_await handlers_.at(request.method)(*this);
+                    co_return result;
                 }
-                co_return http::response{http::status::HTTP_STATUS_METHOD_NOT_ALLOWED};
+                error_response_.status = http::status::HTTP_STATUS_METHOD_NOT_ALLOWED;
+                co_return error_response_;
             }
-            co_return http::response{http::status::HTTP_STATUS_NOT_FOUND};
+            error_response_.status = http::status::HTTP_STATUS_NOT_FOUND;
+            co_return error_response_;
         }
     };
 
     template<typename SessionType, typename...ControllersT>
-    struct controller_server : http::request_processor<SessionType>
+    struct controller_server : http::request_processor<SessionType, controller_server<SessionType, ControllersT...>>
     {
+        using processor_type = http::request_processor<SessionType, controller_server<SessionType, ControllersT...>>;
         using session_type = SessionType;
-        using http::request_processor<SessionType>::request_processor;
+        using processor_type::processor_type;
 
-        cppcoro::task<http::response> process(http::request &request, session_type &session) override {
+        cppcoro::task<http::detail::base_response&> process(http::detail::base_request &request, session_type &session) {
             for (auto &controller : controllers_) {
                 controller->session_ = &session;
-                http::response response = co_await controller->process(request);
+                http::detail::base_response &response = co_await controller->process(request);
                 if (response.status != http::status::HTTP_STATUS_NOT_FOUND) {
                     co_return response;
                 }
             }
-            co_return http::response{
-                http::status::HTTP_STATUS_NOT_FOUND
-            };
+            this->error_response_.status = http::status::HTTP_STATUS_NOT_FOUND;
+            co_return this->error_response_;
         }
 
     private:

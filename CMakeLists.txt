@@ -68,13 +68,22 @@ FetchContent_MakeAvailable(_fetch_fmt)
 add_library(${PROJECT_NAME} STATIC
   include/cppcoro/tcp/tcp.hpp
   include/cppcoro/http/http.hpp
+  include/cppcoro/http/http_message.hpp
   include/cppcoro/http/http_request.hpp
+  include/cppcoro/http/http_response.hpp
   include/cppcoro/http/http_server.hpp
   include/cppcoro/http/http_client.hpp
   include/cppcoro/http/http_connection.hpp
   include/cppcoro/http/request_processor.hpp
   include/cppcoro/http/route_controller.hpp
   include/cppcoro/http/route_parameter.hpp
+
+  include/cppcoro/http/details/router.hpp
+  include/cppcoro/http/details/static_parser_handler.hpp
+
+  include/cppcoro/details/function_traits.hpp
+  include/cppcoro/details/type_index.hpp
+
   src/http.cpp
   )
 target_include_directories(${PROJECT_NAME} PUBLIC include)

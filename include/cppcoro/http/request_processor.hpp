@@ -9,15 +9,18 @@
 
 namespace cppcoro::http {
 
-    template<typename SessionT>
+    template<typename SessionT, typename ProcessorT>
     class request_processor : public server
     {
+    protected:
+        http::string_response error_response_;
     public:
+        using session_type = SessionT;
         using server::server;
 
         task<> serve() {
             auto handle_conn = [this](http::server::connection_type conn) mutable -> task<> {
-                SessionT session{};
+                session_type session{};
                 while (true) {
                     try {
                         // wait next connection request
@@ -25,7 +28,7 @@ namespace cppcoro::http {
                         if (!req)
                             break; // connection closed
                         // wait next router response
-                        co_await conn.send(co_await this->process(*req, session));
+                        co_await conn.send(co_await static_cast<ProcessorT*>(this)->process(*req, session));
                     } catch (std::system_error &err) {
                         if (err.code() == std::errc::connection_reset) {
                             break; // connection reset by peer
@@ -45,8 +48,5 @@ namespace cppcoro::http {
             } catch (operation_cancelled &) {}
             co_await scope.join();
         }
-
-    protected:
-        virtual task <http::response> process(http::request &request, SessionT &session) = 0;
     };
 }

@@ -15,7 +15,7 @@ namespace cppcoro::http {
 
     class server;
 
-    template<typename ParentT>
+    template<typename ParentT, typename ResponseT = string_response, typename RequestT = string_request>
     class connection : public tcp::connection
     {
     public:
@@ -24,14 +24,9 @@ namespace cppcoro::http {
                 return false;
             } else return true;
         }
-        static constexpr auto parser_type() {
-            if constexpr (std::is_same_v<ParentT, server>) {
-                return detail::http_parser_type::HTTP_REQUEST;
-            } else return detail::http_parser_type::HTTP_RESPONSE;
-        }
-
-        using receive_type = typename std::conditional<is_response_parser(), response, request>::type;
-        using send_type = typename std::conditional<is_response_parser(), request, response>::type;
+        using receive_type = std::conditional_t<is_response_parser(), ResponseT, RequestT>;
+        using send_type = std::conditional_t<is_response_parser(), RequestT, ResponseT>;
+        using parser_type = std::conditional_t<is_response_parser(), response_parser, request_parser>;
 
         connection(connection &&other) noexcept
             : tcp::connection{std::move(other)}, parent_{other.parent_}, /*input_{std::move(other.input_)},*/
@@ -56,23 +51,15 @@ namespace cppcoro::http {
 
         task<std::optional<receive_type>> next() {
             receive_type result;
+            parser_type parser;
             while (true) {
                 //std::fill(begin(buffer_), end(buffer_), '\0');
                 auto ret = co_await sock_.recv(buffer_.data(), buffer_.size(), ct_);
                 bool done = ret <= 0;
                 if (!done) {
-                    if(result.parse(buffer_.data(), ret)) {
-                        if (result.headers.contains("Content-Length")) {
-                            int content_len = 0;
-                            auto value = result.headers.at("Content-Length");
-                            std::from_chars(value.data(), value.data() + value.size(), content_len);
-                            auto body_len = ::strnlen(result.body.data(), result.body.size());
-                            if (content_len != body_len) {
-                                buffer_.resize(content_len - body_len);
-                                fmt::print("- waiting for {} bytes\n", content_len - body_len);
-                                continue;
-                            }
-                        }
+                    parser.parse(buffer_.data(), ret);
+                    if(parser) {
+                        parser.load(result);
                         co_return result;
                     }
                 } else {
@@ -89,13 +76,19 @@ namespace cppcoro::http {
             return _send<http::method::get>(std::forward<std::string>(path), std::forward<std::string>(path));
         }
 
-        task<> send(send_type &&to_send) {
+        template <typename MessageType>
+        task<> send(MessageType &&to_send) {
             auto header = to_send.build_header();
             auto size = co_await sock_.send(header.data(), header.size(), ct_);
             assert(size == header.size());
-            if (!to_send.body.empty()) {
-                size = co_await sock_.send(to_send.body.data(), to_send.body.size(), ct_);
-                assert(size == to_send.body.size());
+            if constexpr (detail::ro_basic_body<MessageType>) {
+                auto body = to_send.read_body();
+                if (!body.empty()) {
+                    size = co_await sock_.send(body.data(), body.size(), ct_);
+                    assert(size == to_send.body.size());
+                }
+            } else {
+                throw std::runtime_error("not implemented");
             }
         }
 
