@@ -58,3 +58,9 @@ mkdir build && cd build
 cmake -DBUILD_EXAMPLES=ON ..
 make -j
 ```
+
+## TODO
+
+- [ ] chunked transfers
+- [ ] ssl support
+- [ ] ...
