@@ -77,8 +77,7 @@ namespace cppcoro::http {
             return _send<http::method::get>(std::forward<std::string>(path), std::forward<std::string>(path));
         }
 
-        template <typename MessageType>
-        task<> send(MessageType &&to_send) {
+        task<> send(http::detail::base_message &to_send) {
             auto header = to_send.build_header();
 //            auto [size, body] = co_await when_all(
 //                sock_.send(header.data(), header.size(), ct_),
@@ -86,10 +85,29 @@ namespace cppcoro::http {
 //            )
             auto size = co_await sock_.send(header.data(), header.size(), ct_);
             assert(size == header.size());
-            auto body = co_await to_send.read_body();
-            if (!body.empty()) {
-                size = co_await sock_.send(body.data(), body.size(), ct_);
-                assert(size == body.size());
+            if (to_send.is_chunked()) {
+                std::string_view body;
+                while (true) {
+                    body = co_await to_send.read_body();
+                    if (body.empty()) {
+                        auto size_str = fmt::format("{}\r\n\r\n", 0);
+                        co_await sock_.send(size_str.data(), size_str.size(), ct_);
+                        break;
+                    } else {
+                        fmt::print("{x}\r\n", body.size());
+                        auto size_str = fmt::format("{x}\r\n", body.size());
+                        co_await sock_.send(size_str.data(), size_str.size(), ct_);
+                        size = co_await sock_.send(body.data(), body.size(), ct_);
+                        assert(size == body.size());
+                        co_await sock_.send("\r\n", 2, ct_);
+                    }
+                }
+            } else {
+                auto body = co_await to_send.read_body();
+                if (!body.empty()) {
+                    size = co_await sock_.send(body.data(), body.size(), ct_);
+                    assert(size == body.size());
+                }
             }
         }
 

@@ -31,6 +31,7 @@ namespace cppcoro::http {
 
             http::headers headers;
 
+            virtual bool is_chunked() = 0;
             virtual std::string build_header() = 0;
             virtual task<std::string_view> read_body(size_t max_size = max_body_size) = 0;
             virtual task<size_t> write_body(std::string_view data) = 0;
@@ -75,6 +76,7 @@ namespace cppcoro::http {
             using base_type = std::conditional_t<_is_response, base_response, base_request>;
             static constexpr bool is_response = _is_response;
             static constexpr bool is_request = !_is_response;
+            static constexpr bool is_chunked_ = rw_chunked_body<BodyT>;
 
             using base_type::base_type;
 
@@ -96,11 +98,15 @@ namespace cppcoro::http {
                 static_cast<base_type>(*this) = std::move(base);
             }
 
+            bool is_chunked() final {
+                return is_chunked_;
+            }
+
             task<std::string_view> read_body(size_t max_size = max_body_size) final {
                 if constexpr (ro_basic_body<BodyT>) {
                     co_return std::string_view{body_access.data(), body_access.size()};
-                } else {
-                    co_return body_access.read(max_size);
+                } else if constexpr (ro_chunked_body<BodyT>) {
+                    co_return co_await body_access.read(max_size);
                 }
             }
 
@@ -109,8 +115,8 @@ namespace cppcoro::http {
                     auto size = data.size();
                     this->body_access = BodyT{data.data(), size};
                     co_return size;
-                } else {
-                    co_return this->body_access.write(data);
+                } else if constexpr (wo_chunked_body<BodyT>) {
+                    co_return co_await this->body_access.write(data);
                 }
             }
 

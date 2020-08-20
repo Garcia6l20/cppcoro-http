@@ -9,11 +9,11 @@ namespace cppcoro::http::detail {
 
     template<typename BodyT>
     concept ro_chunked_body = requires(BodyT body) {
-        { body.read(size_t(0)) } -> std::same_as<std::string_view>;
+        { body.read(size_t(0)) } -> std::same_as<task<std::string_view>>;
     };
     template<typename BodyT>
     concept wo_chunked_body = requires(BodyT body) {
-        { body.write(std::string_view{}) } -> std::same_as<size_t>;
+        { body.write(std::string_view{}) } -> std::same_as<task<size_t>>;
     };
     template<typename BodyT>
     concept rw_chunked_body = ro_chunked_body<BodyT> and wo_chunked_body<BodyT>;
@@ -30,14 +30,15 @@ namespace cppcoro::http::detail {
     template<typename BodyT>
     concept rw_basic_body = ro_basic_body<BodyT> and wo_basic_body<BodyT>;
 
-    template<typename BodyT>
-    concept is_body = ro_basic_body<BodyT> and wo_basic_body<BodyT>;
 
     template<typename BodyT>
     concept readable_body = ro_basic_body<BodyT> or ro_chunked_body<BodyT>;
 
     template<typename BodyT>
     concept writeable_body = wo_basic_body<BodyT> or wo_chunked_body<BodyT>;
+
+    template<typename BodyT>
+    concept is_body = readable_body<BodyT> or writeable_body<BodyT>;
 
     template <bool is_request>
     class static_parser_handler {

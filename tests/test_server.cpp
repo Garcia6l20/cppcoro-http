@@ -13,83 +13,41 @@
 
 using namespace cppcoro;
 
-//SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
-//    io_service ios;
-//    struct session {};
-//    struct echo_controller : http::route_controller<
-//        R"(/echo/(\w+))",  // route definition
-//        session,
-//        echo_controller>
-//    {
-//        auto on_get(const std::string &what) -> task<http::response> {
-//            co_return http::response{http::status::HTTP_STATUS_OK,
-//                                     fmt::format("{}", what)};
-//        }
-//    };
-//    using echo_server = http::controller_server<session, echo_controller>;
-//    echo_server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
-//    GIVEN("An echo server") {
-//        WHEN("...") {
-//            http::client client{ios};
-//            sync_wait(when_all(
-//            [&]() -> task<> {
-//                auto _ = on_scope_exit([&] {
-//                    ios.stop();
-//                });
-//                co_await server.serve();
-//            } (),
-//            [&]() -> task<> {
-//                auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
-//                auto response = co_await conn.get("/echo/hello", "");
-//                REQUIRE(response->body == "hello");
-//                server.stop();
-//            }(),
-//            [&]() -> task<> {
-//                ios.process_events();
-//                co_return;
-//            }()));
-//        }
-//    }
-//}
-
-SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
-
-    http::detail::abstract_response<std::string> response{http::status::HTTP_STATUS_OK};
-
+SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
     io_service ios;
     struct session {};
-    struct chunk_controller : http::route_controller<
-        R"(/)",  // route definition
+    struct echo_controller : http::route_controller<
+        R"(/echo/(\w+))",  // route definition
         session,
-        chunk_controller>
+        echo_controller>
     {
-        auto on_get() -> task<http::string_response> {
+        auto on_get(const std::string &what) -> task<http::string_response> {
             co_return http::string_response {http::status::HTTP_STATUS_OK,
-                                     fmt::format("hello")};
+                                     fmt::format("{}", what)};
         }
     };
-    using chunk_server = http::controller_server<session, chunk_controller>;
-    chunk_server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
-    GIVEN("An chunk server") {
+    using echo_server = http::controller_server<session, echo_controller>;
+    echo_server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
+    GIVEN("An echo server") {
         WHEN("...") {
             http::client client{ios};
             sync_wait(when_all(
-                [&]() -> task<> {
-                    auto _ = on_scope_exit([&] {
-                        ios.stop();
-                    });
-                    co_await server.serve();
-                } (),
-                [&]() -> task<> {
-                    auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
-                    auto response = co_await conn.get();
-                    // REQUIRE(response->read_body() == "hello");
-                    server.stop();
-                }(),
-                [&]() -> task<> {
-                    ios.process_events();
-                    co_return;
-                }()));
+            [&]() -> task<> {
+                auto _ = on_scope_exit([&] {
+                    ios.stop();
+                });
+                co_await server.serve();
+            } (),
+            [&]() -> task<> {
+                auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
+                auto response = co_await conn.get("/echo/hello", "");
+                REQUIRE(co_await response->read_body() == "hello");
+                server.stop();
+            }(),
+            [&]() -> task<> {
+                ios.process_events();
+                co_return;
+            }()));
         }
     }
 }
