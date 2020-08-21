@@ -6,9 +6,10 @@
 
 #include <cppcoro/http/http_response.hpp>
 #include <cppcoro/http/http_request.hpp>
-#include <cppcoro/task.hpp>
 #include <cppcoro/http/details/router.hpp>
 #include <cppcoro/http/request_processor.hpp>
+
+#include <cppcoro/task.hpp>
 
 #include <ctll.hpp>
 #include <ctre.hpp>
@@ -45,12 +46,15 @@ namespace cppcoro::http {
 
     }
 
-    template<ctll::fixed_string route, typename SessionT, typename Derived>
+    template<ctll::fixed_string route, typename SessionT, typename RequestT, typename Derived>
     class route_controller : public detail::abstract_route_controller
     {
+        using request_type = RequestT;
         using builder_type = ctre::regex_builder<route>;
         static constexpr inline auto match_ = ctre::regex_match_t<typename builder_type::type>();
         std::invoke_result_t<decltype(match_), std::string_view> match_result_;
+
+        request_type request_;
 
         auto &self() {
             return *static_cast<Derived *>(this);
@@ -91,6 +95,15 @@ namespace cppcoro::http {
             return bool(match_result_);
         }
 
+        auto make_request() {
+            using request_body = typename request_type::body_type;
+            if constexpr (std::constructible_from<request_body, io_service&>) {
+                return request_type{http::method::unknown, request_body{service_}};
+            } else {
+                return request_type{http::method::unknown, request_body{}};
+            }
+        }
+
     protected:
 
         auto &session() { return *static_cast<SessionT*>(session_); }
@@ -102,7 +115,10 @@ namespace cppcoro::http {
         route_controller(route_controller &&other) = default;
         route_controller& operator=(route_controller &&other) noexcept = default;
 
-        explicit route_controller(io_service &service) : detail::abstract_route_controller{service} {
+        explicit route_controller(io_service &service)
+            : detail::abstract_route_controller{service}
+            , request_{make_request()} {
+
 #define __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(__method) \
             if constexpr (detail::is_ ## __method ## _controller<Derived>) { \
                 register_handler<http::method:: __method>(&Derived::on_ ## __method);\
@@ -114,7 +130,6 @@ namespace cppcoro::http {
             __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(head)
             __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(options)
             __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(patch)
-
 #undef __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL
         }
 

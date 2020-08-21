@@ -13,19 +13,19 @@
 namespace cppcoro::http {
 
     /**
-     * @brief Abstract chunk provider.
+     * @brief Abstract chunk base.
      *
-     * Implements base requirements for chunk providers (default service ctor, move ctor & assignment op).
+     * Implements base requirements for chunk providers/processors (default service ctor, move ctor & assignment op).
      */
-    class abstract_chunk_provider
+    class abstract_chunk_base
     {
         std::reference_wrapper<io_service> service_;
     public:
         // needed for default construction
-        abstract_chunk_provider(io_service &service) noexcept: service_{service} {}
+        abstract_chunk_base(io_service &service) noexcept: service_{service} {}
 
-        abstract_chunk_provider(abstract_chunk_provider &&other) noexcept = default;
-        abstract_chunk_provider &operator=(abstract_chunk_provider &&other) noexcept = default;
+        abstract_chunk_base(abstract_chunk_base &&other) noexcept = default;
+        abstract_chunk_base &operator=(abstract_chunk_base &&other) noexcept = default;
 
     protected:
         auto &service() { return service_; }
@@ -36,14 +36,14 @@ namespace cppcoro::http {
      *
      * Chunk provider implementation for read_only_file access.
      */
-    struct read_only_file_chunk_provider : http::abstract_chunk_provider
+    struct read_only_file_chunk_provider : http::abstract_chunk_base
     {
-        using abstract_chunk_provider::abstract_chunk_provider;
+        using abstract_chunk_base::abstract_chunk_base;
 
         std::string path_;
 
         read_only_file_chunk_provider(io_service &service, std::string_view path) noexcept:
-            abstract_chunk_provider{service}, path_{path} {}
+            abstract_chunk_base{service}, path_{path} {}
 
         async_generator <std::string_view> read(size_t chunk_size) {
             auto f = read_only_file::open(service(), path_);
@@ -64,4 +64,5 @@ namespace cppcoro::http {
     static_assert(http::detail::ro_chunked_body<read_only_file_chunk_provider>);
 
     using read_only_file_chunked_response = http::abstract_response<read_only_file_chunk_provider>;
+    using read_only_file_chunked_request = http::abstract_request<read_only_file_chunk_provider>;
 }
