@@ -24,6 +24,7 @@ struct session
 using add_controller_def = http::route_controller<
     R"(/add/(\d+)/(\d+))",  // route definition
     session,
+    http::string_request,
     struct add_controller>;
 
 struct add_controller : add_controller_def
@@ -39,6 +40,7 @@ struct add_controller : add_controller_def
 using hello_controller_def = http::route_controller<
     R"(/hello/(\w+))",  // route definition
     session,
+    http::string_request,
     struct hello_controller>;
 
 struct hello_controller : hello_controller_def
@@ -54,6 +56,7 @@ struct hello_controller : hello_controller_def
 using cat_controller_def = http::route_controller<
     R"(/cat)",  // route definition
     session,
+    http::string_request,
     struct cat_controller>;
 
 struct cat_controller : cat_controller_def

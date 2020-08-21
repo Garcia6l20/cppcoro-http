@@ -18,6 +18,7 @@ int main() {
     using hello_controller_def = http::route_controller<
         R"(/hello/(\w+))",  // route definition
         session,
+        http::string_request,
         struct hello_controller>;
 
     struct hello_controller : hello_controller_def

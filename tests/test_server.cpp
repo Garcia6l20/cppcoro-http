@@ -17,6 +17,7 @@ using namespace cppcoro;
 SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
     io_service ios;
 
+    static constinit std::string_view test_endpoint = "127.0.0.1:4242";
 
     struct session {};
 
@@ -35,7 +36,7 @@ SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
         }
     };
     using echo_server = http::controller_server<session, echo_controller>;
-    echo_server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
+    echo_server server{ios, *net::ip_endpoint::from_string(test_endpoint)};
     GIVEN("An echo server") {
         WHEN("...") {
             http::client client{ios};
@@ -50,7 +51,7 @@ SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
                 auto _ = on_scope_exit([&] {
                     server.stop();
                 });
-                auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
+                auto conn = co_await client.connect(*net::ip_endpoint::from_string(test_endpoint));
                 auto response = co_await conn.get("/echo", "hello");
                 REQUIRE(response->status == http::status::HTTP_STATUS_OK);
                 REQUIRE(co_await response->read_body() == "hello");

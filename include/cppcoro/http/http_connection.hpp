@@ -20,14 +20,19 @@ namespace cppcoro::http {
     class connection : public tcp::connection
     {
     public:
-        static constexpr bool is_response_parser() {
+        static constexpr bool is_server() {
             if constexpr (std::is_same_v<ParentT, server>) {
-                return false;
-            } else return true;
+                return true;
+            } else return false;
         }
-        using receive_type = std::conditional_t<is_response_parser(), ResponseT, RequestT>;
-        using send_type = std::conditional_t<is_response_parser(), RequestT, ResponseT>;
-        using parser_type = std::conditional_t<is_response_parser(), response_parser, request_parser>;
+        static constexpr bool is_client() {
+            return not is_server();
+        }
+        using receive_type = std::conditional_t<is_client(), ResponseT, RequestT>;
+        using base_receive_type = std::conditional_t<is_client(), http::detail::base_response, http::detail::base_request>;
+        using send_type = std::conditional_t<is_client(), RequestT, ResponseT>;
+        using base_send_type = std::conditional_t<is_client(), http::detail::base_request, http::detail::base_response>;
+        using parser_type = std::conditional_t<is_client(), response_parser, request_parser>;
 
         connection(connection &&other) noexcept
             : tcp::connection{std::move(other)}, parent_{other.parent_}, /*input_{std::move(other.input_)},*/
@@ -50,9 +55,12 @@ namespace cppcoro::http {
               buffer_(2048, 0) {
         }
 
-        task<std::optional<receive_type>> next() {
-            receive_type result;
+        task<receive_type*> next(std::function<base_receive_type&(const parser_type&)> init) {
+            base_receive_type* result = nullptr;
             parser_type parser;
+            auto init_result = [&] {
+                result = &init(parser);
+            };
             while (true) {
                 //std::fill(begin(buffer_), end(buffer_), '\0');
                 auto ret = co_await sock_.recv(buffer_.data(), buffer_.size(), ct_);
@@ -60,24 +68,26 @@ namespace cppcoro::http {
                 if (!done) {
                     parser.parse(buffer_.data(), ret);
                     if(parser.has_body() && not parser) {
+                        if (!result) init_result();
                         // chunk
-                        co_await parser.load(result);
+                        co_await parser.load(*result);
                     }
                     if(parser) {
-                        co_await parser.load(result);
-                        co_return result;
+                        if (!result) init_result();
+                        co_await parser.load(*result);
+                        co_return std::move(static_cast<receive_type*>(result));
                     }
                 } else {
-                    co_return std::nullopt;
+                    co_return nullptr;
                 }
             }
         }
 
 
-        auto post(std::string &&path, std::string &&data = "") requires(is_response_parser()) {
+        auto post(std::string &&path, std::string &&data = "") requires(is_client()) {
             return _send<http::method::post>(std::forward<std::string>(path), std::forward<std::string>(data));
         }
-        auto get(std::string &&path = "/", std::string &&data = "") requires(is_response_parser()) {
+        auto get(std::string &&path = "/", std::string &&data = "") requires(is_client()) {
             return _send<http::method::get>(std::forward<std::string>(path), std::forward<std::string>(data));
         }
 
@@ -118,7 +128,7 @@ namespace cppcoro::http {
 
 
         template <http::method _method>
-        task<std::optional<receive_type>> _send(std::string &&path, std::string &&data = "") requires(is_response_parser()) {
+        task<std::optional<receive_type>> _send(std::string &&path, std::string &&data = "") requires(is_client()) {
             send_type request{
                 _method,
                 std::forward<std::string>(path),
@@ -126,9 +136,14 @@ namespace cppcoro::http {
                 {}
             };
             co_await send(request);
-            auto resp = co_await next();
-            //fmt::print("{}\n", resp->body);
-            co_return resp;
+            receive_type response{http::status::HTTP_STATUS_NOT_FOUND};
+            auto resp = co_await next([&](const http::response_parser &) -> receive_type&{
+                return response;
+            });
+            if (resp) {
+                co_return std::optional<receive_type>{std::move(*resp)};
+            }
+            co_return std::optional<receive_type>{};
         }
 
         std::vector<char> buffer_;

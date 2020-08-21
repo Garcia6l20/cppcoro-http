@@ -34,10 +34,12 @@ namespace cppcoro::detail {
 
             using return_type = Ret;
 
+            using tuple_type = std::tuple<Args...>;
+
             template<size_t i>
             struct arg
             {
-                using type = typename std::tuple_element<i, std::tuple<Args...>>::type;
+                using type = typename std::tuple_element<i, tuple_type>::type;
                 using clean_type = std::remove_cvref_t<type>;
             };
 

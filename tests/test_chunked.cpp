@@ -17,31 +17,6 @@
 
 using namespace cppcoro;
 
-namespace cppcoro::http {
-    struct write_only_file_processor : abstract_chunk_base
-    {
-        using abstract_chunk_base::abstract_chunk_base;
-
-        write_only_file file_;
-        size_t offset = 0;
-
-        write_only_file_processor(io_service &service, std::string_view path) noexcept:
-            abstract_chunk_base{service}, file_{write_only_file::open(service, path)} {}
-
-        task <size_t> write(std::string_view chunk) {
-            auto size = co_await file_.write(offset, chunk.data(), chunk.size());
-            offset += size;
-            co_return size;
-        }
-    };
-
-    static_assert(std::constructible_from<write_only_file_processor, io_service&>);
-    static_assert(detail::wo_chunked_body<write_only_file_processor>);
-
-    using write_only_file_chunked_response = abstract_response<write_only_file_processor>;
-    using write_only_file_chunked_request = abstract_request<write_only_file_processor>;
-}
-
 SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
     io_service ios;
 
@@ -66,9 +41,10 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
                                                                 http::read_only_file_chunk_provider{service(), __FILE__}};
             }
         };
+        static_assert(not http::detail::has_init_request_handler<test_reader_controller>);
 
         using test_writer_controller_def = http::route_controller<
-            R"(/writer)",  // route definition
+            R"(/write/([\w\.]+))",  // route definition
             session,
             http::write_only_file_chunked_request,
             struct test_writer_controller>;
@@ -76,17 +52,23 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
         struct test_writer_controller : test_writer_controller_def {
             using test_writer_controller_def::test_writer_controller_def;
 
-            auto on_post() -> task<http::string_response> {
+            void init_request(std::string_view filename, http::write_only_file_chunked_request &request) {
+                request.body_access.init(filename);
+            }
+
+            task<http::string_response> on_post(std::string_view filename) {
                 co_return http::string_response{
                     http::status::HTTP_STATUS_OK,
-                    "success"
+                    fmt::format("successfully wrote {}", filename)
                 };
             }
         };
+        static_assert(http::detail::has_init_request_handler<test_writer_controller>);
 
-        using chunk_server = http::controller_server<session,
-            test_reader_controller,
-            test_writer_controller>;
+        using chunk_server = http::controller_server<session
+            , test_reader_controller
+            , test_writer_controller
+            >;
         chunk_server server{ios, *net::ip_endpoint::from_string("127.0.0.1:4242")};
 
         WHEN("...") {
@@ -108,11 +90,19 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
                     content.resize(f.size());
                     auto[body, f_size] = co_await when_all(
                         [&]() -> task<std::string> {
-                            auto response = co_await conn.get();
+                            auto response = co_await conn.get("/read");
+                            REQUIRE(response->status == http::status::HTTP_STATUS_OK);
                             co_return std::string{co_await response->read_body()};
                         }(),
                         f.read(0, content.data(), content.size()));
                     REQUIRE(body == content);
+                    auto response = co_await conn.post("/write/test.txt", std::move(body));
+                    REQUIRE(response->status == http::status::HTTP_STATUS_OK);
+                    auto f2 = read_only_file::open(ios, "test.txt");
+                    std::string content2;
+                    content2.resize(f2.size());
+                    co_await f2.read(0, content2.data(), content2.size());
+                    REQUIRE(content2 == content); // copied successful
                     co_return;
                 }(),
                 [&]() -> task<> {

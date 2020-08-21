@@ -12,19 +12,23 @@ struct session {
     int id = std::rand();
 };
 
-struct hello_controller : http::route_controller<
+using hello_controller_def = http::route_controller<
     R"(/hello/(\w+))",  // route definition
     session,
-    hello_controller>
+    http::string_request,
+    struct hello_controller>;
+
+struct hello_controller : hello_controller_def
 {
+    using hello_controller_def::hello_controller_def;
     // method handlers
-    auto on_post(std::string_view who) -> task<http::response> {
-        co_return http::response{http::status::HTTP_STATUS_OK,
-            fmt::format("post at {}: hello {}", session().id, who)};
+    auto on_post(std::string_view who) -> task<http::string_response> {
+        co_return http::string_response{http::status::HTTP_STATUS_OK,
+                                 fmt::format("post at {}: hello {}", session().id, who)};
     }
-    auto on_get(std::string_view who) -> task<http::response> {
-        co_return http::response{http::status::HTTP_STATUS_OK,
-            fmt::format("get at {}: hello {}", session().id, who)};
+    auto on_get(std::string_view who) -> task<http::string_response> {
+        co_return http::string_response{http::status::HTTP_STATUS_OK,
+                                 fmt::format("get at {}: hello {}", session().id, who)};
     }
 };
 
@@ -32,7 +36,7 @@ io_service service;
 
 auto do_serve = [&]() -> task<> {
     auto _ = on_scope_exit([&] {
-        ios.stop();
+        service.stop();
     });
     http::controller_server<session, hello_controller> server{
         service,
@@ -61,6 +65,6 @@ make -j
 
 ## TODO
 
-- [ ] chunked transfers
+- [x] chunked transfers
 - [ ] ssl support
 - [ ] ...

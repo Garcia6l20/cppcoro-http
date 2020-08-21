@@ -114,6 +114,10 @@ namespace cppcoro::http::detail {
             }
         }
 
+        const auto &url() const {
+            return url_;
+        }
+
     protected:
         enum class status
         {

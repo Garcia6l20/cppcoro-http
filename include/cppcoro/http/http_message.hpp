@@ -39,6 +39,8 @@ namespace cppcoro::http {
 
         struct base_request : base_message
         {
+            static constexpr bool is_request = true;
+            static constexpr bool is_response = false;
             using base_message::base_message;
 
             base_request(base_request &&other) = default;
@@ -59,6 +61,8 @@ namespace cppcoro::http {
 
         struct base_response : base_message
         {
+            static constexpr bool is_response = true;
+            static constexpr bool is_request = false;
             using base_message::base_message;
 
             base_response(base_response &&other) = default;

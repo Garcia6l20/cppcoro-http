@@ -25,7 +25,8 @@ namespace cppcoro::http::detail {
     {
         using parameters_tuple_type = typename FunctionTraitsT::template parameters_tuple<PredicateType>;
         using data_type = typename parameters_tuple_type::tuple_type;
-        using await_result_type = typename FunctionTraitsT::return_type::value_type;
+        // TODO handle non-awaitables
+        using await_result_type = std::conditional_t<std::is_void_v<typename FunctionTraitsT::return_type>, void, typename FunctionTraitsT::return_type::value_type>;
         static const constexpr size_t data_arity = std::tuple_size_v<data_type>;
 
         static constexpr auto make_tuple = parameters_tuple_type::make;
@@ -45,6 +46,27 @@ namespace cppcoro::http::detail {
             return true;
         }
     };
+
+    template<int type_idx, int match_idx, int max, typename TupleT, typename MatcherT>
+    static constexpr void _load_data(TupleT &data, const MatcherT &match) {
+        if constexpr (type_idx < max) {
+            using ParamT = std::decay_t<decltype(std::get<type_idx>(data))>;
+            std::get<type_idx>(data) = route_parameter<ParamT>::load(match.template get<match_idx>());
+            _load_data<type_idx + 1, match_idx + route_parameter<ParamT>::group_count() + 1, max>(data, match);
+        }
+    }
+
+    template<typename TupleT, typename MatcherT>
+    static constexpr bool load_data(const MatcherT &match, TupleT &data) {
+        _load_data<0, 1, std::tuple_size_v<TupleT>>(data, match);
+        return true;
+    }
+
+    template<int max_size, typename TupleT, typename MatcherT>
+    static constexpr bool load_data(const MatcherT &match, TupleT &data) {
+        _load_data<0, 1, max_size>(data, match);
+        return true;
+    }
 
     template<typename ReturnT, typename PredicateT, class T>
     struct view_handler_traits
