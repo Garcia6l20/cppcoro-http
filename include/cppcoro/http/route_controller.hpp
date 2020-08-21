@@ -64,7 +64,7 @@ namespace cppcoro::http {
         std::optional<request_type> request_;
 
         auto &self() {
-            return *static_cast<Derived *>(this);
+            return static_cast<Derived&>(*this);
         }
 
         using handler_type = std::function<cppcoro::task<detail::base_response&>(route_controller&)>;
@@ -106,14 +106,6 @@ namespace cppcoro::http {
             request_.emplace(make_request());
             if constexpr (detail::has_init_request_handler<Derived>) {
                 using traits = detail::function_traits<decltype(&Derived::init_request)>;
-//                static_assert(std::same_as<typename traits::template arg<0>::clean_type, std::string_view>);
-//                static_assert(traits::arity == 2);
-//                static_assert(std::same_as<typename traits::template arg<traits::arity - 1>::clean_type, request_type>, "Invalid request type");
-//                using handler_trait = detail::view_handler_traits<void,
-//                    detail::function_detail::parameters_tuple_disable<request_type>,
-//                    decltype(&Derived::init_request)>;
-//                typename handler_trait::data_type data;
-//                handler_trait::load_data(match_result_, data);
                 using data_type = typename traits::template parameters_tuple<detail::function_detail::parameters_tuple_disable<request_type>>::tuple_type;
                 data_type data;
                 detail::load_data(match_result_, data);
@@ -121,7 +113,6 @@ namespace cppcoro::http {
                     std::make_tuple(static_cast<Derived *>(this)),
                     data,
                     std::tuple<request_type&>(*request_)));
-                //static_cast<Derived*>(this)->init_request(*request_);
             }
             return &*request_;
         }
@@ -188,6 +179,7 @@ namespace cppcoro::http {
         }
 
         http::detail::base_request *prepare(const http::request_parser &parser, session_type &session) {
+            next_proc_ = nullptr;
             for (auto &controller : controllers_) {
                 if (controller->match(parser.url())) {
                     controller->session_ = &session;
@@ -199,11 +191,19 @@ namespace cppcoro::http {
         }
 
         cppcoro::task<http::detail::base_response&> process(http::detail::base_request &request) {
-            http::detail::base_response &response = co_await next_proc_->process();
-            co_return response;
+            if (!next_proc_) {
+                error_response_ = string_response {
+                    http::status::HTTP_STATUS_NOT_FOUND,
+                };
+                co_return error_response_;
+            } else {
+                http::detail::base_response &response = co_await next_proc_->process();
+                co_return response;
+            }
         }
 
     private:
+        string_response error_response_;
         detail::abstract_route_controller *next_proc_;
         std::array<std::unique_ptr<detail::abstract_route_controller>, sizeof...(ControllersT)> controllers_;
     };

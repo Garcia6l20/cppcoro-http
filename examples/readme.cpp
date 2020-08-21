@@ -7,6 +7,7 @@
 
 #include <fmt/format.h>
 #include <cppcoro/http/route_controller.hpp>
+#include <cppcoro/http/http_chunk_provider.hpp>
 
 using namespace cppcoro;
 
@@ -35,15 +36,46 @@ int main() {
         }
     };
 
+    struct hello_chunk_provider : http::abstract_chunk_base {
+        std::string_view who;
+        using http::abstract_chunk_base::abstract_chunk_base;
+        hello_chunk_provider(io_service& service, std::string_view who) : http::abstract_chunk_base{service}, who{who} {}
+        async_generator<std::string_view> read(size_t) {
+            co_yield "hello\n";
+            co_yield fmt::format("{}\n", who);
+        }
+    };
+    using hello_chunked_response = http::abstract_response<hello_chunk_provider>;
+
+    using hello_chunk_controller_def = http::route_controller<
+        R"(/chunk/(\w+))",  // route definition
+        session,
+        http::string_request,
+        struct hello_chunk_controller>;
+
+    struct hello_chunk_controller : hello_chunk_controller_def
+    {
+        using hello_chunk_controller_def::hello_chunk_controller_def;
+        // method handlers
+        task<hello_chunked_response> on_get(std::string_view who) {
+            co_return hello_chunked_response{http::status::HTTP_STATUS_OK,
+                                             hello_chunk_provider {service(), who}};
+        }
+    };
+
     io_service service;
 
     auto do_serve = [&]() -> task<> {
         auto _ = on_scope_exit([&] {
             service.stop();
         });
-        http::controller_server<session, hello_controller> server{
+        http::controller_server<
+            session,
+            hello_controller,
+            hello_chunk_controller> server {
             service,
-            *net::ip_endpoint::from_string("127.0.0.1:4242")};
+            *net::ip_endpoint::from_string("127.0.0.1:4242")
+        };
         co_await server.serve();
     };
     (void) sync_wait(when_all(

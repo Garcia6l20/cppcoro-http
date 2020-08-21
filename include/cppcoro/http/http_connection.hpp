@@ -70,12 +70,20 @@ namespace cppcoro::http {
                     if(parser.has_body() && not parser) {
                         if (!result) init_result();
                         // chunk
-                        co_await parser.load(*result);
+                        if (result) {
+                            co_await parser.load(*result);
+                        } else {
+                            co_return nullptr;
+                        }
                     }
                     if(parser) {
                         if (!result) init_result();
-                        co_await parser.load(*result);
-                        co_return std::move(static_cast<receive_type*>(result));
+                        if (result) {
+                            co_await parser.load(*result);
+                            co_return std::move(static_cast<receive_type *>(result));
+                        } else {
+                            co_return nullptr;
+                        }
                     }
                 } else {
                     co_return nullptr;
