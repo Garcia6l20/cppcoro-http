@@ -1,5 +1,4 @@
 #define CATCH_CONFIG_MAIN
-
 #include <catch2/catch.hpp>
 
 #include <fmt/format.h>
@@ -10,6 +9,7 @@
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
 #include <cppcoro/on_scope_exit.hpp>
+#include <cppcoro/generator.hpp>
 #include <cppcoro/http/route_controller.hpp>
 
 using namespace cppcoro;
@@ -27,27 +27,16 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
         struct chunker
         {
             std::reference_wrapper<io_service> service;
-            int counter = 0;
-            std::string current_body;
 
             chunker(io_service &service) noexcept : service{service} {}
 
             chunker(chunker &&other) noexcept = default;
             chunker &operator=(chunker &&other) noexcept = default;
 
-            ~chunker() {
-                if (counter)
-                    service.get().stop();
-            }
-
-            task<std::string_view> read(size_t sz) {
-                fmt::print("chunk {}\n", counter);
-                if (counter >= 3) {
-                    co_return std::string_view{}; // stop transfer
-                }
-                current_body = fmt::format("chunk {}\n", counter);
-                ++counter;
-                co_return std::string_view{current_body};
+            generator<std::string_view> read(size_t sz) {
+                co_yield std::string_view{"chunk 0\n"};
+                co_yield std::string_view{"chunk 1\n"};
+                co_yield std::string_view{"chunk 2\n"};
             }
         };
 
