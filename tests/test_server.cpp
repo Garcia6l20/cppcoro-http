@@ -13,14 +13,23 @@
 
 using namespace cppcoro;
 
+
 SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
     io_service ios;
+
+
     struct session {};
-    struct echo_controller : http::route_controller<
+
+    struct echo_controller;
+
+    using echo_route_controller_def = http::route_controller<
         R"(/echo/(\w+))",  // route definition
         session,
-        echo_controller>
+        echo_controller>;
+
+    struct echo_controller : echo_route_controller_def
     {
+        using echo_route_controller_def::echo_route_controller_def;
         auto on_get(const std::string &what) -> task<http::string_response> {
             co_return http::string_response {http::status::HTTP_STATUS_OK,
                                      fmt::format("{}", what)};

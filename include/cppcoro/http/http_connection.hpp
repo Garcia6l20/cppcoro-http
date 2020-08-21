@@ -94,8 +94,7 @@ namespace cppcoro::http {
                         co_await sock_.send(size_str.data(), size_str.size(), ct_);
                         break;
                     } else {
-                        fmt::print("{x}\r\n", body.size());
-                        auto size_str = fmt::format("{x}\r\n", body.size());
+                        auto size_str = fmt::format("{:x}\r\n", body.size());
                         co_await sock_.send(size_str.data(), size_str.size(), ct_);
                         size = co_await sock_.send(body.data(), body.size(), ct_);
                         assert(size == body.size());
@@ -122,7 +121,7 @@ namespace cppcoro::http {
                 std::forward<std::string>(data),
                 {}
             };
-            co_await send(std::move(request));
+            co_await send(request);
             auto resp = co_await next();
             //fmt::print("{}\n", resp->body);
             co_return resp;

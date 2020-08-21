@@ -76,7 +76,6 @@ namespace cppcoro::http {
             using base_type = std::conditional_t<_is_response, base_response, base_request>;
             static constexpr bool is_response = _is_response;
             static constexpr bool is_request = !_is_response;
-            static constexpr bool is_chunked_ = rw_chunked_body<BodyT>;
 
             using base_type::base_type;
 
@@ -99,7 +98,11 @@ namespace cppcoro::http {
 //            }
 
             bool is_chunked() final {
-                return is_chunked_;
+                if constexpr (ro_chunked_body<body_type> or wo_chunked_body<body_type>) {
+                    return true;
+                } else {
+                    return false;
+                }
             }
 
             task<std::string_view> read_body(size_t max_size = max_body_size) final {

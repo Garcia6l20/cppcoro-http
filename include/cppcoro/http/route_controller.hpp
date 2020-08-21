@@ -66,11 +66,15 @@ namespace cppcoro::http {
             using handler_trait = detail::view_handler_traits<cppcoro::task<detail::base_response>,
                 detail::function_detail::parameters_tuple_all_enabled,
                 HandlerT>;
-            std::shared_ptr<typename handler_trait::await_result_type> response;
-            if constexpr (std::invocable<typename handler_trait::await_result_type, io_service&>) {
-                response = std::make_shared<typename handler_trait::await_result_type>(service_);
+            using response_type = typename handler_trait::await_result_type;
+            using response_body = typename response_type::body_type;
+            std::shared_ptr<response_type> response;
+            if constexpr (std::constructible_from<response_body, io_service&>) {
+                response = std::make_shared<response_type>(
+                    http::status::HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                    response_body{service_});
             } else {
-                response = std::make_shared<typename handler_trait::await_result_type>();
+                response = std::make_shared<response_type>();
             }
             handlers_[method] = [data = std::make_shared<typename handler_trait::data_type>(),
                                  response = response,
