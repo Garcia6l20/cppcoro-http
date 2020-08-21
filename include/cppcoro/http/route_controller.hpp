@@ -34,10 +34,12 @@ namespace cppcoro::http {
 
         struct abstract_route_controller
         {
+            explicit abstract_route_controller(io_service &service) noexcept : service_{service} {}
             virtual ~abstract_route_controller() = default;
 
             virtual task<detail::base_response&> process(detail::base_request &request) = 0;
 
+            io_service &service_;
             void *session_ = nullptr;
         };
 
@@ -64,8 +66,14 @@ namespace cppcoro::http {
             using handler_trait = detail::view_handler_traits<cppcoro::task<detail::base_response>,
                 detail::function_detail::parameters_tuple_all_enabled,
                 HandlerT>;
+            std::shared_ptr<typename handler_trait::await_result_type> response;
+            if constexpr (std::invocable<typename handler_trait::await_result_type, io_service&>) {
+                response = std::make_shared<typename handler_trait::await_result_type>(service_);
+            } else {
+                response = std::make_shared<typename handler_trait::await_result_type>();
+            }
             handlers_[method] = [data = std::make_shared<typename handler_trait::data_type>(),
-                                 response = std::make_shared<typename handler_trait::await_result_type>(),
+                                 response = response,
                                  handler = std::forward<HandlerT>(handler)]
                 (route_controller &self) mutable -> cppcoro::task<detail::base_response&> {
                 handler_trait::load_data(self.match_result_, *data);
@@ -82,6 +90,7 @@ namespace cppcoro::http {
     protected:
 
         auto &session() { return *static_cast<SessionT*>(session_); }
+        auto &service() { return service_; }
 
     public:
         route_controller(const route_controller&) = delete;
@@ -89,7 +98,7 @@ namespace cppcoro::http {
         route_controller(route_controller &&other) = default;
         route_controller& operator=(route_controller &&other) noexcept = default;
 
-        route_controller() {
+        explicit route_controller(io_service &service) : detail::abstract_route_controller{service} {
 #define __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(__method) \
             if constexpr (detail::is_ ## __method ## _controller<Derived>) { \
                 register_handler<http::method:: __method>(&Derived::on_ ## __method);\
@@ -124,7 +133,12 @@ namespace cppcoro::http {
     {
         using processor_type = http::request_processor<SessionType, controller_server<SessionType, ControllersT...>>;
         using session_type = SessionType;
-        using processor_type::processor_type;
+
+        controller_server(io_service &service, const net::ip_endpoint &endpoint) noexcept
+            : processor_type{service, endpoint}
+            , controllers_{std::make_unique<ControllersT>(ControllersT{this->ios_})...}
+        {
+        }
 
         cppcoro::task<http::detail::base_response&> process(http::detail::base_request &request, session_type &session) {
             for (auto &controller : controllers_) {
@@ -139,8 +153,6 @@ namespace cppcoro::http {
         }
 
     private:
-        std::array<std::unique_ptr<detail::abstract_route_controller>, sizeof...(ControllersT)> controllers_ = {
-            std::make_unique<ControllersT>(ControllersT{})...
-        };
+        std::array<std::unique_ptr<detail::abstract_route_controller>, sizeof...(ControllersT)> controllers_;
     };
 }

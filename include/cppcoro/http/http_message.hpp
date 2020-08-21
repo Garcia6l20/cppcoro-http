@@ -93,10 +93,10 @@ namespace cppcoro::http {
                 , body_access{std::forward<BodyT>(body)} {
             }
 
-            explicit abstract_message(base_type &&base) noexcept : base_type(std::move(base))  {}
-            abstract_message& operator=(base_type &&base) noexcept {
-                static_cast<base_type>(*this) = std::move(base);
-            }
+//            explicit abstract_message(base_type &&base) noexcept : base_type(std::move(base))  {}
+//            abstract_message& operator=(base_type &&base) noexcept {
+//                static_cast<base_type>(*this) = std::move(base);
+//            }
 
             bool is_chunked() final {
                 return is_chunked_;
