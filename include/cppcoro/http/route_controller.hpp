@@ -98,9 +98,9 @@ namespace cppcoro::http {
         auto make_request() {
             using request_body = typename request_type::body_type;
             if constexpr (std::constructible_from<request_body, io_service&>) {
-                return request_type{http::method::unknown, request_body{service_}};
+                return request_type{http::method::unknown, "", request_body{service_}};
             } else {
-                return request_type{http::method::unknown, request_body{}};
+                return request_type{http::method::unknown, "", request_body{}};
             }
         }
 
@@ -108,6 +108,7 @@ namespace cppcoro::http {
 
         auto &session() { return *static_cast<SessionT*>(session_); }
         auto &service() { return service_; }
+        auto &request() { return request_; }
 
     public:
         route_controller(const route_controller&) = delete;
@@ -136,6 +137,8 @@ namespace cppcoro::http {
         task<detail::base_response&> process(detail::base_request &request) override {
             if (match(request.path)) {
                 if (handlers_.contains(request.method)) {
+                    auto body = co_await request.read_body();
+                    co_await request_.write_body(body);
                     auto &result = co_await handlers_.at(request.method)(*this);
                     co_return result;
                 }

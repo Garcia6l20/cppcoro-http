@@ -75,10 +75,10 @@ namespace cppcoro::http {
 
 
         auto post(std::string &&path, std::string &&data = "") requires(is_response_parser()) {
-            return _send<http::method::post>(std::forward<std::string>(path), std::forward<std::string>(path));
+            return _send<http::method::post>(std::forward<std::string>(path), std::forward<std::string>(data));
         }
         auto get(std::string &&path = "/", std::string &&data = "") requires(is_response_parser()) {
-            return _send<http::method::get>(std::forward<std::string>(path), std::forward<std::string>(path));
+            return _send<http::method::get>(std::forward<std::string>(path), std::forward<std::string>(data));
         }
 
         task<> send(http::detail::base_message &to_send) {

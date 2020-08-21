@@ -20,19 +20,18 @@ SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
 
     struct session {};
 
-    struct echo_controller;
-
     using echo_route_controller_def = http::route_controller<
-        R"(/echo/(\w+))",  // route definition
+        R"(/echo)",  // route definition
         session,
-        echo_controller>;
+        http::string_request,
+        struct echo_controller>;
 
     struct echo_controller : echo_route_controller_def
     {
         using echo_route_controller_def::echo_route_controller_def;
-        auto on_get(const std::string &what) -> task<http::string_response> {
+        auto on_get() -> task<http::string_response> {
             co_return http::string_response {http::status::HTTP_STATUS_OK,
-                                     fmt::format("{}", what)};
+                                     fmt::format("{}", co_await request().read_body())};
         }
     };
     using echo_server = http::controller_server<session, echo_controller>;
@@ -48,10 +47,13 @@ SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
                 co_await server.serve();
             } (),
             [&]() -> task<> {
+                auto _ = on_scope_exit([&] {
+                    server.stop();
+                });
                 auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
-                auto response = co_await conn.get("/echo/hello", "");
+                auto response = co_await conn.get("/echo", "hello");
+                REQUIRE(response->status == http::status::HTTP_STATUS_OK);
                 REQUIRE(co_await response->read_body() == "hello");
-                server.stop();
             }(),
             [&]() -> task<> {
                 ios.process_events();

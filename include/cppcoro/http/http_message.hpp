@@ -154,16 +154,17 @@ namespace cppcoro::http {
 
         private:
             inline auto _header_base() {
-                if constexpr (is_response)
+                if constexpr (is_response) {
                     return fmt::format("HTTP/1.1 {} {}\r\n"
                                        "UserAgent: cppcoro-http/0.0\r\n",
                                        int(this->status),
                                        http_status_str(this->status));
-                else
+                } else {
                     return fmt::format("{} {} HTTP/1.1\r\n"
                                        "UserAgent: cppcoro-http/0.0\r\n",
                                        this->method_str(),
                                        this->path);
+                }
             }
         };
 

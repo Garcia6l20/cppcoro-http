@@ -229,7 +229,7 @@ namespace cppcoro::http::detail {
         };
         status state_{status::none};
         std::string_view header_field_;
-        std::string_view url_;
+        std::string url_;
         std::string_view body_;
         http::headers headers_;
     };
