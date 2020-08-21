@@ -167,13 +167,14 @@ namespace cppcoro::http {
             }
         };
 
-        template<is_body BodyT>
-        using abstract_response = abstract_message<true, BodyT>;
-
-        template<is_body BodyT>
-        using abstract_request = abstract_message<false, BodyT>;
 
     }
+
+    template<detail::is_body BodyT>
+    using abstract_response = detail::abstract_message<true, BodyT>;
+
+    template<detail::is_body BodyT>
+    using abstract_request = detail::abstract_message<false, BodyT>;
 
     struct request_parser : detail::static_parser_handler<true> {
         using detail::static_parser_handler<true>::static_parser_handler;

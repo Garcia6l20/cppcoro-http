@@ -9,23 +9,23 @@
 namespace cppcoro::http::detail {
 
     template<typename BodyT>
-    concept ro_chunked_body = requires(BodyT body) {
+    concept ro_chunked_body = requires(BodyT &&body) {
         { body.read(size_t(0)) } -> std::same_as<async_generator<std::string_view>>;
     };
     template<typename BodyT>
-    concept wo_chunked_body = requires(BodyT body) {
+    concept wo_chunked_body = requires(BodyT &&body) {
         { body.write(std::string_view{}) } -> std::same_as<task<size_t>>;
     };
     template<typename BodyT>
     concept rw_chunked_body = ro_chunked_body<BodyT> and wo_chunked_body<BodyT>;
 
     template<typename BodyT>
-    concept ro_basic_body = requires(BodyT body) {
+    concept ro_basic_body = requires(BodyT &&body) {
         { body.data() } -> std::same_as<char *>;
         { body.size() } -> std::same_as<size_t>;
     };
     template<typename BodyT>
-    concept wo_basic_body = requires(BodyT body) {
+    concept wo_basic_body = requires(BodyT &&body) {
         //{ BodyT((char *) nullptr, (char *) nullptr) } -> std::same_as<BodyT>;
         { body.append(std::string_view{}) };
     };

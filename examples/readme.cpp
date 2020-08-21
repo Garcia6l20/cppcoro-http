@@ -15,11 +15,14 @@ int main() {
         int id = std::rand();
     };
 
-    struct hello_controller : http::route_controller<
+    using hello_controller_def = http::route_controller<
         R"(/hello/(\w+))",  // route definition
         session,
-        hello_controller>
+        struct hello_controller>;
+
+    struct hello_controller : hello_controller_def
     {
+        using hello_controller_def::hello_controller_def;
         // method handlers
         auto on_post(std::string_view who) -> task<http::string_response> {
             co_return http::string_response{http::status::HTTP_STATUS_OK,
