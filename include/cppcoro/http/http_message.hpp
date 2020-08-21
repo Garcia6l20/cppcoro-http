@@ -82,8 +82,8 @@ namespace cppcoro::http {
             using body_type = BodyT;
             BodyT body_access;
 
-            std::optional<generator<std::string_view>> chunk_generator_;
-            generator<std::string_view>::iterator chunk_generator_it_;
+            std::optional<async_generator<std::string_view>> chunk_generator_;
+            std::optional<async_generator<std::string_view>::iterator> chunk_generator_it_;
 
             abstract_message(http::status status, BodyT &&body = {}, http::headers &&headers = {}) requires (is_response)
                 : base_response{status, std::forward<http::headers>(headers)}
@@ -114,12 +114,12 @@ namespace cppcoro::http {
                 } else if constexpr (ro_chunked_body<BodyT>) {
                     if (not chunk_generator_) {
                         chunk_generator_ = body_access.read(max_size);
-                        chunk_generator_it_ = chunk_generator_->begin();
-                    }
-                    if (chunk_generator_it_ != chunk_generator_->end()) {
-                        auto res = *chunk_generator_it_;
-                        ++chunk_generator_it_;
-                        co_return res;
+                        chunk_generator_it_ = co_await chunk_generator_->begin();
+                        if (*chunk_generator_it_ != chunk_generator_->end()) {
+                            co_return **chunk_generator_it_;
+                        }
+                    } else if (co_await ++*chunk_generator_it_ != chunk_generator_->end()) {
+                        co_return **chunk_generator_it_;
                     }
                     co_return std::string_view{};
                 }

@@ -2,7 +2,7 @@
 
 #include <cppcoro/http/http.hpp>
 #include <cppcoro/task.hpp>
-#include <cppcoro/generator.hpp>
+#include <cppcoro/async_generator.hpp>
 
 #include <memory>
 
@@ -10,7 +10,7 @@ namespace cppcoro::http::detail {
 
     template<typename BodyT>
     concept ro_chunked_body = requires(BodyT body) {
-        { body.read(size_t(0)) } -> std::same_as<generator<std::string_view>>;
+        { body.read(size_t(0)) } -> std::same_as<async_generator<std::string_view>>;
     };
     template<typename BodyT>
     concept wo_chunked_body = requires(BodyT body) {

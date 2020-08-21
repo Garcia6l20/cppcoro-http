@@ -1,4 +1,5 @@
 #define CATCH_CONFIG_MAIN
+
 #include <catch2/catch.hpp>
 
 #include <fmt/format.h>
@@ -10,6 +11,7 @@
 #include <cppcoro/when_all.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/generator.hpp>
+#include <cppcoro/read_only_file.hpp>
 #include <cppcoro/http/route_controller.hpp>
 
 using namespace cppcoro;
@@ -19,7 +21,6 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
 
     http::detail::abstract_response<std::string> response{http::status::HTTP_STATUS_OK};
 
-
     io_service ios;
 
     GIVEN("An chunk server") {
@@ -27,18 +28,33 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
         struct chunker
         {
             std::reference_wrapper<io_service> service;
+            std::string path_;
 
-            chunker(io_service &service) noexcept : service{service} {}
+            // needed for default construction
+            chunker(io_service &service) noexcept: service{service} {}
+
+            chunker(io_service &service, std::string_view path) noexcept: service{service}, path_{path} {}
 
             chunker(chunker &&other) noexcept = default;
+
             chunker &operator=(chunker &&other) noexcept = default;
 
-            generator<std::string_view> read(size_t sz) {
-                co_yield std::string_view{"chunk 0\n"};
-                co_yield std::string_view{"chunk 1\n"};
-                co_yield std::string_view{"chunk 2\n"};
+            async_generator <std::string_view> read(size_t sz) {
+                auto f = read_only_file::open(service, path_);
+                std::string buffer;
+                buffer.resize(sz);
+                uint64_t offset = 0;
+                auto to_send = f.size();
+                size_t res;
+                do {
+                    res = co_await f.read(offset, buffer.data(), sz);
+                    to_send -= res;
+                    offset += res;
+                    co_yield std::string_view{buffer.data(), res};
+                } while (to_send);
             }
         };
+        static_assert(std::constructible_from<chunker, io_service &>);
 
         struct session
         {
@@ -57,10 +73,11 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
         struct chunk_controller : chunk_controller_def
         {
             using chunk_controller_def::chunk_controller_def;
-            auto on_get() -> task<chunk_response> {
+
+            auto on_get() -> task <chunk_response> {
                 fmt::print("get ...\n");
                 co_return chunk_response{http::status::HTTP_STATUS_OK,
-                                         chunker{service()}};
+                                         chunker{service(), __FILE__}};
             }
         };
 
@@ -82,10 +99,13 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
                     });
                     auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
                     auto response = co_await conn.get();
-                    auto body = co_await response->read_body();
-                    REQUIRE(body == "chunk 0\n"
-                                    "chunk 1\n"
-                                    "chunk 2\n");
+                    auto f = read_only_file::open(ios, __FILE__);
+                    std::string content;
+                    content.resize(f.size());
+                    auto[body, f_size] = co_await when_all(
+                        response->read_body(),
+                        f.read(0, content.data(), content.size()));
+                    REQUIRE(body == content);
                     co_return;
                 }(),
                 [&]() -> task<> {
