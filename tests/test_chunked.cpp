@@ -87,14 +87,18 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]") {
                     });
                     co_await server.serve();
                 }(),
-//                [&]() -> task<> {
-//                    auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
-//                    auto response = co_await conn.get();
-//                    auto body = co_await response->read_body();
-//                    REQUIRE(body == "hellohellohello");
-//                    server.stop();
-//                    co_return;
-//                }(),
+                [&]() -> task<> {
+                    auto _ = on_scope_exit([&] {
+                        server.stop();
+                    });
+                    auto conn = co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
+                    auto response = co_await conn.get();
+                    auto body = co_await response->read_body();
+                    REQUIRE(body == "chunk 0\n"
+                                    "chunk 1\n"
+                                    "chunk 2\n");
+                    co_return;
+                }(),
                 [&]() -> task<> {
                     ios.process_events();
                     co_return;

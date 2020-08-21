@@ -25,7 +25,8 @@ namespace cppcoro::http::detail {
     };
     template<typename BodyT>
     concept wo_basic_body = requires(BodyT body) {
-        { BodyT((char *) nullptr, (char *) nullptr) } -> std::same_as<BodyT>;
+        //{ BodyT((char *) nullptr, (char *) nullptr) } -> std::same_as<BodyT>;
+        { body.append(std::string_view{}) };
     };
     template<typename BodyT>
     concept rw_basic_body = ro_basic_body<BodyT> and wo_basic_body<BodyT>;
@@ -66,11 +67,16 @@ namespace cppcoro::http::detail {
         static_parser_handler(const static_parser_handler &) noexcept = delete;
         static_parser_handler& operator=(const static_parser_handler &) noexcept = delete;
 
+        bool has_body() const noexcept {
+            return body_.size();
+        }
+
         operator bool() const {
             return state_ == status::on_message_complete;
         }
 
         const void parse(const char *data, size_t len) {
+            body_ = {};
             const auto count = execute_parser(data, len);
             if (count < len) {
                 throw std::runtime_error{

@@ -59,6 +59,10 @@ namespace cppcoro::http {
                 bool done = ret <= 0;
                 if (!done) {
                     parser.parse(buffer_.data(), ret);
+                    if(parser.has_body() && not parser) {
+                        // chunk
+                        co_await parser.load(result);
+                    }
                     if(parser) {
                         co_await parser.load(result);
                         co_return result;

@@ -116,7 +116,7 @@ namespace cppcoro::http {
             task<size_t> write_body(std::string_view data) final {
                 if constexpr (wo_basic_body<BodyT>) {
                     auto size = data.size();
-                    this->body_access = BodyT{data.data(), size};
+                    this->body_access.append(data);
                     co_return size;
                 } else if constexpr (wo_chunked_body<BodyT>) {
                     co_return co_await this->body_access.write(data);
