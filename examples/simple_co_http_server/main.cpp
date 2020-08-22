@@ -4,9 +4,16 @@
 #include <cppcoro/when_all.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 
+#include <lyra/cli_parser.hpp>
+#include <lyra/opt.hpp>
+#include <lyra/arg.hpp>
+
+#include <thread>
+#include <ranges>
 
 using namespace cppcoro;
 namespace fs = std::filesystem;
+namespace rng = std::ranges;
 
 struct session
 {
@@ -25,12 +32,28 @@ struct home_controller : home_controller_def
 
     static constexpr std::string_view template_ = R"(
 <!DOCTYPE html>
+<html lang="en">
 <head lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/css/bootstrap.min.css" integrity="sha384-r4NyP46KrjDleawBgD5tp8Y7UzmLA05oM1iAEQ17CSuDqnUK2+k9luXQOfXJCJ4I" crossorigin="anonymous">
 <title>{title}</title>
 </head>
-<body>
-{body}
+<body class="bg-light">
+    <div class="container">
+        <div class="py-5 text-center">
+            <h2>Simple CppCoro HTTP Server</h2>
+            <p class="lead">{path}</p>
+        </div>
+        <nav aria-label="breadcrumb">
+        {breadcrumb}
+        </nav>
+        {body}
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/js/bootstrap.min.js" integrity="sha384-oesi62hOLfzrys4LxRF63OJCXdXDipiYWBnvTl9Y9/TRlw5xlKIEHpNyvvDShgf/" crossorigin="anonymous"></script>
 </body>
+</html>
 )";
 
     fmt::memory_buffer make_body(std::string_view path) {
@@ -39,19 +62,39 @@ struct home_controller : home_controller_def
             chrooted_path = ".";
         fmt::print("-- get: {} ({})\n", path, chrooted_path);
         fmt::memory_buffer out;
-        fmt::format_to(out, "<ul>");
+        fmt::format_to(out, R"(<div class="list-group">)");
         for (auto &p: fs::directory_iterator(chrooted_path)) {
-            fmt::format_to(out, R"(<li><a href="/{full_path}">{path}</a></li>)",
+            fmt::format_to(out, R"(<a class="list-group-item-action" href="/{full_path}">{path}</a>)",
                            fmt::arg("path", fs::relative(p.path(), chrooted_path).c_str()),
                            fmt::arg("full_path", fs::relative(p.path()).c_str()));
         }
-        fmt::format_to(out, "</ul>");
+        fmt::format_to(out, "</div>");
         return out;
+    }
+
+    fmt::memory_buffer make_breadcrumb(std::string_view path) {
+        fmt::memory_buffer buff;
+        constexpr std::string_view init = R"(<nav aria-label="breadcrumb"><ol class="breadcrumb">)";
+        buff.append(std::begin(init), std::end(init));
+        fs::path p = path;
+        std::vector<std::string> elems = {
+            {fmt::format(R"(<li class="breadcrumb-item"><a href="{}">{}</a></li>)", p.string(), p.filename().c_str())}
+        };
+        p = p.parent_path();
+        while (p.has_parent_path()) {
+            elems.emplace_back(fmt::format(R"(<li class="breadcrumb-item"><a href="{}">{}</a></li>)", p.string(), p.filename().c_str()));
+            p = p.parent_path();
+        }
+        for (auto &elem : elems | std::views::reverse) {
+            fmt::format_to(buff, "{}", elem);
+        }
+        return buff;
     }
 
     using response_type =
     std::variant<http::string_response, http::read_only_file_chunked_response>;
     static_assert(http::detail::is_visitable<response_type>);
+
     task<response_type> on_get(std::string_view path) {
         auto status = http::status::HTTP_STATUS_OK;
         auto chrooted_path = (fs::relative(fs::path{path.data(), path.data() + path.size()})).string();
@@ -68,11 +111,14 @@ struct home_controller : home_controller_def
                 fmt::format_to(body, R"(<div><h6>Not found</h6><p>{}</p></div>)", error.what());
                 status = http::status::HTTP_STATUS_NOT_FOUND;
             }
+            auto breadcrumb = make_breadcrumb(path);
             co_return http::string_response{
                 status,
                 fmt::format(template_,
                             fmt::arg("title", path),
-                            fmt::arg("body", std::string_view{body.data(), body.size()})),
+                            fmt::arg("body", std::string_view{body.data(), body.size()}),
+                            fmt::arg("path", path),
+                            fmt::arg("breadcrumb", std::string_view{breadcrumb.data(), breadcrumb.size()})),
                 http::headers{
                     {"Content-Type", "text/html"}
                 }
@@ -107,9 +153,6 @@ struct home_controller : home_controller_def
 using simple_co_server = http::controller_server<session,
     home_controller>;
 
-#include <lyra/cli_parser.hpp>
-#include <lyra/opt.hpp>
-#include <lyra/arg.hpp>
 
 int main(int argc, char **argv) {
     bool debug = false;
