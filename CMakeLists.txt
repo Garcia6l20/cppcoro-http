@@ -50,9 +50,9 @@ add_library(http_parser::http_parser ALIAS http_parser)
 
 conan_cmake_run(
   REQUIRES
-  fmt/7.0.1
-  spdlog/1.7.0
-  ctre/2.8.2
+    fmt/7.0.1
+    spdlog/1.7.0
+    ctre/2.8.2
   BASIC_SETUP CMAKE_TARGETS
   BUILD outdated)
 

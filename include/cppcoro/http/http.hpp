@@ -31,7 +31,7 @@ namespace cppcoro::http {
     using headers = std::map<std::string, std::string>;
 
     namespace logging {
-        static inline spdlog::level_t log_level = spdlog::level::debug;
+        static inline spdlog::level_t log_level = spdlog::level::warn;
         constexpr auto logger_name = "cppcoro::http";
         inline static auto logger = [] () -> std::shared_ptr<spdlog::logger> {
             if (auto logger = spdlog::get(logger_name);

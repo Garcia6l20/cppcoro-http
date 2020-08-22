@@ -53,6 +53,19 @@ namespace cppcoro::http {
 
     }
 
+    namespace detail {
+
+        template <typename T>
+        concept is_visitable = requires (T &&v) {
+            { std::get<0>(v) };
+        };
+
+        template <typename T>
+        concept has_body_type = requires (T &&v) {
+            typename T::body_type;
+        };
+    }
+
     template<ctll::fixed_string route, typename SessionT, typename RequestT, typename Derived>
     class route_controller : public detail::abstract_route_controller
     {
@@ -71,6 +84,7 @@ namespace cppcoro::http {
         std::map<http::method, handler_type> handlers_;
         http::string_response error_response_;
 
+
         template<http::method method, typename HandlerT>
         void register_handler(HandlerT &&handler) {
             using traits = detail::function_traits<HandlerT>;
@@ -78,12 +92,16 @@ namespace cppcoro::http {
                 detail::function_detail::parameters_tuple_all_enabled,
                 HandlerT>;
             using response_type = typename handler_trait::await_result_type;
-            using response_body = typename response_type::body_type;
             std::shared_ptr<response_type> response;
-            if constexpr (std::constructible_from<response_body, io_service&>) {
-                response = std::make_shared<response_type>(
-                    http::status::HTTP_STATUS_INTERNAL_SERVER_ERROR,
-                    response_body{service_});
+            constexpr auto has_response_body = detail::has_body_type<response_type>;
+            if constexpr (has_response_body) {
+                if constexpr (std::constructible_from<typename response_type::body_type, io_service&>) {
+                    response = std::make_shared<response_type>(
+                        http::status::HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                        typename response_type::body_type{service_});
+                } else {
+                    response = std::make_shared<response_type>();
+                }
             } else {
                 response = std::make_shared<response_type>();
             }
@@ -93,13 +111,20 @@ namespace cppcoro::http {
                 (route_controller &self) mutable -> cppcoro::task<detail::base_response&> {
                 handler_trait::load_data(self.match_result_, *data);
                 *response = co_await std::apply(handler, std::tuple_cat(std::make_tuple(&self.self()), *data));
-                co_return *response;
+                if constexpr (detail::is_visitable<response_type>) {
+                    detail::base_response *ptr = nullptr;
+                    std::visit([&ptr](auto &elem) mutable {
+                        ptr = &elem;
+                    }, *response);
+                    co_return *ptr;
+                } else {
+                    co_return *response;
+                }
             };
         };
 
         bool match(std::string_view url) final {
             match_result_ = std::move(match_(url));
-            spdlog::debug("match({}): {} - {}", url, bool(match_result_), match_result_.template get<1>());
             return bool(match_result_);
         }
 
