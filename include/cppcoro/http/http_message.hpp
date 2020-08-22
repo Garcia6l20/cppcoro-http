@@ -53,9 +53,12 @@ namespace cppcoro::http {
             http::method method;
             std::string path;
 
-
-            auto method_str() const {
+            [[nodiscard]] auto method_str() const {
                 return http_method_str(static_cast<detail::http_method>(method));
+            }
+
+            std::string to_string() const {
+                return fmt::format("{} {}", method_str(), path);
             }
         };
 
@@ -72,6 +75,14 @@ namespace cppcoro::http {
                 : base_message{std::forward<http::headers>(headers)}, status{status} {}
 
             http::status status;
+
+            [[nodiscard]] auto status_str() const {
+                return http_status_str(static_cast<detail::http_status>(status));
+            }
+
+            std::string to_string() const {
+                return status_str();
+            }
         };
 
         template<bool _is_response, is_body BodyT>

@@ -7,6 +7,11 @@
 #include <cppcoro/task.hpp>
 #include <cppcoro/when_all.hpp>
 
+#include <cppcoro/fmt/stringable.hpp>
+
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include <charconv>
 #include <cstring>
 
@@ -19,15 +24,30 @@ namespace cppcoro::http {
     template<typename ParentT, typename ResponseT = string_response, typename RequestT = string_request>
     class connection : public tcp::connection
     {
+        std::shared_ptr<spdlog::logger> logger_ = [this]() mutable {
+            auto logger = logging::get_logger(*this);
+            logger->flush_on(spdlog::level::debug);
+            return logger;
+        }();
     public:
+        auto &logger() {
+            return *logger_;
+        }
+
+        std::string to_string() const {
+            return fmt::format("connection::{}", peer_address());
+        }
+
         static constexpr bool is_server() {
             if constexpr (std::is_same_v<ParentT, server>) {
                 return true;
             } else return false;
         }
+
         static constexpr bool is_client() {
             return not is_server();
         }
+
         using receive_type = std::conditional_t<is_client(), ResponseT, RequestT>;
         using base_receive_type = std::conditional_t<is_client(), http::detail::base_response, http::detail::base_request>;
         using send_type = std::conditional_t<is_client(), RequestT, ResponseT>;
@@ -36,7 +56,15 @@ namespace cppcoro::http {
 
         connection(connection &&other) noexcept
             : tcp::connection{std::move(other)}, parent_{other.parent_}, /*input_{std::move(other.input_)},*/
-              buffer_{std::move(other.buffer_)} {
+              buffer_{std::move(other.buffer_)},
+              logger_{std::move(other.logger_)} {
+        }
+
+        virtual ~connection() noexcept {
+            if (logger_) {
+                logger_->info("connection closed");
+                logging::drop_logger(*this);
+            }
         }
 
         connection(const connection &other) = delete;
@@ -48,18 +76,23 @@ namespace cppcoro::http {
         explicit connection(server &server, tcp::connection connection)
             : tcp::connection(std::move(connection)), parent_{server}, /*input_{std::make_unique<request>()},*/
               buffer_(2048, 0) {
+            logger_->info("new sever connection");
         }
 
         explicit connection(client &client, tcp::connection connection)
             : tcp::connection(std::move(connection)), parent_{client}, /*input_{std::make_unique<response>()},*/
               buffer_(2048, 0) {
+            logger_->info("new client connection");
         }
 
-        task<receive_type*> next(std::function<base_receive_type&(const parser_type&)> init) {
-            base_receive_type* result = nullptr;
+        task<receive_type *> next(std::function<base_receive_type &(const parser_type &)> init) {
+            base_receive_type *result = nullptr;
             parser_type parser;
             auto init_result = [&] {
                 result = &init(parser);
+                if (!result) {
+                    logger_->warn("unable to get valid message handler for {}", parser);
+                }
             };
             while (true) {
                 //std::fill(begin(buffer_), end(buffer_), '\0');
@@ -67,19 +100,21 @@ namespace cppcoro::http {
                 bool done = ret <= 0;
                 if (!done) {
                     parser.parse(buffer_.data(), ret);
-                    if(parser.has_body() && not parser) {
-                        if (!result) init_result();
+                    if (!result) init_result();
+                    if (parser.has_body() && not parser) {
                         // chunk
                         if (result) {
                             co_await parser.load(*result);
+                            logger_->debug("chunked message: {}", *result);
                         } else {
                             co_return nullptr;
                         }
                     }
-                    if(parser) {
+                    if (parser) {
                         if (!result) init_result();
                         if (result) {
                             co_await parser.load(*result);
+                            logger_->debug("message: {}", *result);
                             co_return std::move(static_cast<receive_type *>(result));
                         } else {
                             co_return nullptr;
@@ -95,39 +130,66 @@ namespace cppcoro::http {
         auto post(std::string &&path, std::string &&data = "") requires(is_client()) {
             return _send<http::method::post>(std::forward<std::string>(path), std::forward<std::string>(data));
         }
+
         auto get(std::string &&path = "/", std::string &&data = "") requires(is_client()) {
             return _send<http::method::get>(std::forward<std::string>(path), std::forward<std::string>(data));
         }
 
-        task<> send(http::detail::base_message &to_send) {
+        task<> send(std::derived_from<http::detail::base_message> auto &to_send) {
             auto header = to_send.build_header();
-//            auto [size, body] = co_await when_all(
-//                sock_.send(header.data(), header.size(), ct_),
-//                to_send.read_body()
-//            )
-            auto size = co_await sock_.send(header.data(), header.size(), ct_);
-            assert(size == header.size());
-            if (to_send.is_chunked()) {
-                std::string_view body;
-                while (true) {
+            try {
+                if (to_send.is_chunked()) {
+                    std::string_view body;
+                    auto size = co_await sock_.send(header.data(), header.size(), ct_);
+                    assert(size == header.size());
                     body = co_await to_send.read_body();
-                    if (body.empty()) {
-                        auto size_str = fmt::format("{}\r\n\r\n", 0);
-                        co_await sock_.send(size_str.data(), size_str.size(), ct_);
-                        break;
-                    } else {
+                    while (!body.empty()) {
                         auto size_str = fmt::format("{:x}\r\n", body.size());
                         co_await sock_.send(size_str.data(), size_str.size(), ct_);
+                        logger_->debug("chunked body: {}", body);
                         size = co_await sock_.send(body.data(), body.size(), ct_);
+                        if(size != body.size()) {
+                            logger_->error("body not sent ({}/{})", size, body.size());
+                        } else {
+                            co_await sock_.send("\r\n", 2, ct_);
+                        }
+                        body = co_await to_send.read_body();
+                    }
+                    auto size_str = fmt::format("{}\r\n\r\n", 0);
+                    co_await sock_.send(size_str.data(), size_str.size(), ct_);
+
+                } else {
+                    auto body = co_await to_send.read_body();
+                    auto size = co_await sock_.send(header.data(), header.size(), ct_);
+                    assert(size == header.size());
+                    if (!body.empty()) {
+                        logger_->debug("body: {}", body);
+                        auto size = co_await sock_.send(body.data(), body.size(), ct_);
                         assert(size == body.size());
-                        co_await sock_.send("\r\n", 2, ct_);
                     }
                 }
-            } else {
-                auto body = co_await to_send.read_body();
-                if (!body.empty()) {
+            } catch (std::system_error &error) {
+                if (error.code() == std::errc::connection_reset) {
+                    throw error; // Connection reset by peer
+                }
+                logger_->error("system_error caught: {}", error.what());
+                if constexpr (is_server()) {
+                    string_response error_message {
+                        http::status::HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                        std::string{error.what()},
+                        {}
+                    };
+                    if (error.code() == std::errc::no_such_file_or_directory) {
+                        error_message.status = http::status::HTTP_STATUS_NOT_FOUND;
+                    }
+                    header = error_message.build_header();
+                    auto size = co_await sock_.send(header.data(), header.size(), ct_);
+                    assert(size == header.size());
+                    auto body = co_await to_send.read_body();
                     size = co_await sock_.send(body.data(), body.size(), ct_);
                     assert(size == body.size());
+                } else {
+                    throw;
                 }
             }
         }
@@ -135,7 +197,7 @@ namespace cppcoro::http {
     private:
 
 
-        template <http::method _method>
+        template<http::method _method>
         task<std::optional<receive_type>> _send(std::string &&path, std::string &&data = "") requires(is_client()) {
             send_type request{
                 _method,
@@ -145,7 +207,7 @@ namespace cppcoro::http {
             };
             co_await send(request);
             receive_type response{http::status::HTTP_STATUS_NOT_FOUND};
-            auto resp = co_await next([&](const http::response_parser &) -> receive_type&{
+            auto resp = co_await next([&](const http::response_parser &) -> receive_type & {
                 return response;
             });
             if (resp) {

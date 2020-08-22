@@ -4,6 +4,8 @@
 #include <cppcoro/task.hpp>
 #include <cppcoro/async_generator.hpp>
 
+#include <fmt/format.h>
+
 #include <memory>
 
 namespace cppcoro::http::detail {
@@ -116,6 +118,21 @@ namespace cppcoro::http::detail {
 
         const auto &url() const {
             return url_;
+        }
+
+        std::string to_string() const {
+            fmt::memory_buffer out;
+            std::string_view type;
+            if constexpr (is_request) {
+                fmt::format_to(out, "request {} {}",
+                               detail::http_method_str(detail::http_method(parser_->method)),
+                               url_);
+            } else {
+                fmt::format_to(out, "response {} ",
+                               detail::http_status_str(detail::http_status(parser_->status_code)));
+            }
+            fmt::format_to(out, "{}", body_);
+            return out.data();
         }
 
     protected:

@@ -48,18 +48,20 @@ namespace cppcoro::http {
             abstract_chunk_base{service}, path_{path} {}
 
         async_generator<std::string_view> read(size_t chunk_size) {
-            auto f = read_only_file::open(service(), path_);
-            std::string buffer;
-            buffer.resize(chunk_size);
-            uint64_t offset = 0;
-            auto to_send = f.size();
-            size_t res;
-            do {
-                res = co_await f.read(offset, buffer.data(), chunk_size);
-                to_send -= res;
-                offset += res;
-                co_yield std::string_view{buffer.data(), res};
-            } while (to_send);
+            if (!path_.empty()) {
+                auto f = read_only_file::open(service(), path_);
+                std::string buffer;
+                buffer.resize(chunk_size);
+                uint64_t offset = 0;
+                auto to_send = f.size();
+                size_t res;
+                do {
+                    res = co_await f.read(offset, buffer.data(), chunk_size);
+                    to_send -= res;
+                    offset += res;
+                    co_yield std::string_view{buffer.data(), res};
+                } while (to_send);
+            }
         }
     };
 

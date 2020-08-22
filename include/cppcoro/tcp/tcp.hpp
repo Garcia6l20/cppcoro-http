@@ -38,7 +38,7 @@ namespace cppcoro {
                 return sock_.remote_endpoint();
             }
 
-            auto &socket() { return sock_; }
+            [[nodiscard]] const auto &socket() const { return sock_; }
 
         protected:
             net::socket sock_;

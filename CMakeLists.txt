@@ -4,6 +4,14 @@ project(cppcoro_http)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED  ON)
 
+if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
+  message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
+  file(DOWNLOAD "https://github.com/conan-io/cmake-conan/raw/v0.15/conan.cmake"
+    "${CMAKE_BINARY_DIR}/conan.cmake")
+endif()
+include("${CMAKE_BINARY_DIR}/conan.cmake")
+
+
 include(FetchContent)
 
 #
@@ -40,27 +48,13 @@ add_library(http_parser STATIC
 target_include_directories(http_parser PUBLIC ${_fetch_http_parser_SOURCE_DIR}/)
 add_library(http_parser::http_parser ALIAS http_parser)
 
-#
-# hanickadot/compile-time-regular-expressions
-#
-
-set(CTRE_BUILD_TESTS OFF CACHE INTERNAL "")
-set(CTRE_BUILD_PACKAGE OFF CACHE INTERNAL "")
-FetchContent_Declare(_fetch_ctre
-  GIT_REPOSITORY https://github.com/hanickadot/compile-time-regular-expressions
-  GIT_TAG master
-  )
-FetchContent_MakeAvailable(_fetch_ctre)
-
-#
-# fmtlib/fmt
-#
-
-FetchContent_Declare(_fetch_fmt
-  GIT_REPOSITORY https://github.com/fmtlib/fmt
-  GIT_TAG master
-  )
-FetchContent_MakeAvailable(_fetch_fmt)
+conan_cmake_run(
+  REQUIRES
+  fmt/7.0.1
+  spdlog/1.7.0
+  ctre/2.8.2
+  BASIC_SETUP CMAKE_TARGETS
+  BUILD outdated)
 
 #
 # cppcoro/http
@@ -87,7 +81,12 @@ add_library(${PROJECT_NAME} STATIC
   src/http.cpp
   )
 target_include_directories(${PROJECT_NAME} PUBLIC include)
-target_link_libraries(${PROJECT_NAME} PUBLIC cppcoro::cppcoro http_parser::http_parser ctre::ctre)
+target_link_libraries(${PROJECT_NAME} PUBLIC
+  cppcoro::cppcoro
+  http_parser::http_parser
+  CONAN_PKG::ctre
+  CONAN_PKG::fmt
+  CONAN_PKG::spdlog)
 target_precompile_headers(${PROJECT_NAME} INTERFACE
   <ctre/functions.hpp>
   <ctll/fixed_string.hpp>

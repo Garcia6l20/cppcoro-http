@@ -44,7 +44,7 @@ namespace cppcoro::http {
             virtual ~abstract_route_controller() = default;
 
             virtual task<detail::base_response&> process() = 0;
-            virtual http::detail::base_request *_init_request(std::string_view parser) = 0;
+            virtual http::detail::base_request *_init_request(std::string_view url) = 0;
             virtual bool match(std::string_view url) = 0;
 
             io_service &service_;
@@ -99,11 +99,15 @@ namespace cppcoro::http {
 
         bool match(std::string_view url) final {
             match_result_ = std::move(match_(url));
+            spdlog::debug("match({}): {} - {}", url, bool(match_result_), match_result_.template get<1>());
             return bool(match_result_);
         }
 
         http::detail::base_request *_init_request(std::string_view url) final {
             request_.emplace(make_request());
+            request_->path = url;
+            spdlog::debug("_init_request: {}", request_->path);
+            assert(match(request_->path)); // reload results
             if constexpr (detail::has_init_request_handler<Derived>) {
                 using traits = detail::function_traits<decltype(&Derived::init_request)>;
                 using data_type = typename traits::template parameters_tuple<detail::function_detail::parameters_tuple_disable<request_type>>::tuple_type;
@@ -192,7 +196,7 @@ namespace cppcoro::http {
 
         cppcoro::task<http::detail::base_response&> process(http::detail::base_request &request) {
             if (!next_proc_) {
-                error_response_ = string_response {
+                error_response_ = string_response{
                     http::status::HTTP_STATUS_NOT_FOUND,
                 };
                 co_return error_response_;

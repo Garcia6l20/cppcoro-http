@@ -5,7 +5,7 @@ FetchContent_Declare(_fetch_catch
 FetchContent_MakeAvailable(_fetch_catch)
 include(${_fetch_catch_SOURCE_DIR}/contrib/Catch.cmake)
 
-link_libraries(cppcoro::http Catch2::Catch2 fmt::fmt)
+link_libraries(cppcoro::http Catch2::Catch2)
 
 macro(basic_test _filename)
   get_filename_component(_target ${_filename} NAME_WE)
