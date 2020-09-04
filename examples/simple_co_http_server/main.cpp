@@ -74,15 +74,16 @@ struct home_controller : home_controller_def
 
     fmt::memory_buffer make_breadcrumb(std::string_view path) {
         fmt::memory_buffer buff;
-        constexpr std::string_view init = R"(<nav aria-label="breadcrumb"><ol class="breadcrumb">)";
+        constexpr std::string_view init = R"(<nav aria-label="breadcrumb"><ol class="breadcrumb">)"
+                                          R"(<li class="breadcrumb-item"><a href="/">Home</a></li>)";
         buff.append(std::begin(init), std::end(init));
         fs::path p = path;
         std::vector<std::string> elems = {
-            {fmt::format(R"(<li class="breadcrumb-item"><a href="{}">{}</a></li>)", p.string(), p.filename().c_str())}
+            {fmt::format(R"(<li class="breadcrumb-item active" aria-current="page"><a href="/{}">{}</a></li>)", p.string(), p.filename().c_str())}
         };
         p = p.parent_path();
         while (p.has_parent_path()) {
-            elems.emplace_back(fmt::format(R"(<li class="breadcrumb-item"><a href="{}">{}</a></li>)", p.string(), p.filename().c_str()));
+            elems.emplace_back(fmt::format(R"(<li class="breadcrumb-item"><a href="/{}">{}</a></li>)", p.string(), p.filename().c_str()));
             p = p.parent_path();
         }
         for (auto &elem : elems | std::views::reverse) {
@@ -157,10 +158,14 @@ using simple_co_server = http::controller_server<session,
 int main(int argc, char **argv) {
     bool debug = false;
     std::string endpoint_input = "127.0.0.1:4242";
+    uint32_t thread_count = 1;
     auto cli
         = lyra::opt(debug)
           ["-d"]["--debug"]
               ("Enable debug output")
+          | lyra::opt(thread_count, "thread_count")
+          ["-t"]["--threads"]
+              ("Thread count")
           | lyra::arg(endpoint_input, "endpoint")
               ("Server endpoint");
     auto result = cli.parse({argc, argv});
@@ -176,17 +181,31 @@ int main(int argc, char **argv) {
 
     io_service service;
     auto server_endpoint = net::ip_endpoint::from_string(endpoint_input);
-    spdlog::info("listening at '{}'\n", server_endpoint->to_string());
-    (void) sync_wait(when_all(
-        [&]() -> task<> {
-            auto _ = on_scope_exit([&] {
-                service.stop();
-            });
-            simple_co_server server{service, *server_endpoint};
-            co_await server.serve();
-        }(),
-        [&]() -> task<> {
+
+    // TODO - fix multithreading
+    std::clamp(thread_count, 1u, 256u);
+
+    spdlog::info("listening at '{}' on {} threads\n", server_endpoint->to_string(), thread_count + 1);
+
+    std::vector<std::thread> tp{thread_count};
+
+    rng::generate(tp, [&service] {
+        return std::thread{[&service]() mutable {
             service.process_events();
-            co_return;
-        }()));
+        }};
+    });
+    (void) sync_wait(when_all([&]() -> task<> {
+        auto _ = on_scope_exit([&] {
+            service.stop();
+        });
+        simple_co_server server{service, *server_endpoint};
+        co_await server.serve();
+    }(), [&]() -> task<> {
+        service.process_events();
+        co_return;
+    }()));
+
+    rng::for_each(tp, [](auto &&thread) {
+        thread.join();
+    });
 }

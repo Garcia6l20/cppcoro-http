@@ -19,12 +19,15 @@ namespace cppcoro::http {
     public:
         using tcp::server::server;
         using tcp::server::stop;
+        using tcp::server::service;
         using connection_type = connection<server>;
 
         task<connection_type> listen() {
             auto conn_generator = accept();
             while (!cs_.is_cancellation_requested()) {
+                spdlog::debug("listening for new connection on {}", socket_.local_endpoint());
                 connection_type conn{*this, std::move(co_await accept())};
+                spdlog::debug("{} incoming connection: {}", conn.to_string(), conn.peer_address());
                 co_return conn;
             }
             throw operation_cancelled{};

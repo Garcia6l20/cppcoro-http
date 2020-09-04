@@ -20,6 +20,7 @@ namespace cppcoro::http {
     public:
         using tcp::client::client;
         using tcp::client::stop;
+        using tcp::client::service;
         using connection_type = connection<client>;
 
         task<connection_type> connect(net::ip_endpoint const &endpoint) {

@@ -95,8 +95,11 @@ namespace cppcoro::http {
                 }
             };
             while (true) {
+                co_await parent_.service().schedule();
+                logger_->debug("waiting for incoming message...");
                 //std::fill(begin(buffer_), end(buffer_), '\0');
                 auto ret = co_await sock_.recv(buffer_.data(), buffer_.size(), ct_);
+                logger_->debug("got something: {}", ret);
                 bool done = ret <= 0;
                 if (!done) {
                     parser.parse(buffer_.data(), ret);

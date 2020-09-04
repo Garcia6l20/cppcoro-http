@@ -10,14 +10,19 @@
 #include <cppcoro/when_all.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/http/route_controller.hpp>
+#include <thread>
 
 using namespace cppcoro;
 
+namespace rng = std::ranges;
+
+constexpr auto test_thread_count = 3;
+constexpr auto test_endpoint = "127.0.0.1:4242";
 
 SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
-    io_service ios;
+    http::logging::log_level = spdlog::level::debug;
 
-    static constinit std::string_view test_endpoint = "127.0.0.1:4242";
+    io_service ios;
 
     struct session {};
 
@@ -37,6 +42,19 @@ SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
     };
     using echo_server = http::controller_server<session, echo_controller>;
     echo_server server{ios, *net::ip_endpoint::from_string(test_endpoint)};
+    std::vector<std::thread> tp{test_thread_count};
+    auto start_threads = [&tp, &ios] {
+        rng::generate(tp, [&ios] {
+            return std::thread{[&] {
+                ios.process_events();
+            }};
+        });
+    };
+    auto join_treads = [&tp] {
+        rng::for_each(tp, [](auto &&t) {
+            t.join();
+        });
+    };
     GIVEN("An echo server") {
         WHEN("...") {
             http::client client{ios};
@@ -56,10 +74,17 @@ SCENARIO("echo server should work", "[cppcoro-http][server][echo]") {
                 REQUIRE(response->status == http::status::HTTP_STATUS_OK);
                 REQUIRE(co_await response->read_body() == "hello");
             }(),
+//            [&]() -> task<> {
+//                auto conn = co_await client.connect(*net::ip_endpoint::from_string(test_endpoint));
+//                auto response = co_await conn.get("/echo", "olleh");
+//                REQUIRE(response->status == http::status::HTTP_STATUS_OK);
+//                REQUIRE(co_await response->read_body() == "olleh");
+//            }(),
             [&]() -> task<> {
-                ios.process_events();
+                start_threads();
                 co_return;
             }()));
+            join_treads();
         }
     }
 }

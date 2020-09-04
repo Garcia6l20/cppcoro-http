@@ -68,7 +68,9 @@ namespace cppcoro {
                 cs_.request_cancellation();
             }
 
-            auto token() { return cs_.token(); }
+            auto token() noexcept { return cs_.token(); }
+
+            auto &service() noexcept { return ios_; }
 
         protected:
             io_service &ios_;
@@ -97,6 +99,8 @@ namespace cppcoro {
             void stop() {
                 cs_.request_cancellation();
             }
+
+            auto &service() noexcept { return ios_; }
 
         protected:
             io_service &ios_;

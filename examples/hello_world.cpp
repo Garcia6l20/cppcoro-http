@@ -15,6 +15,7 @@
 #include <thread>
 
 using namespace cppcoro;
+namespace rng = std::ranges;
 
 struct session
 {
@@ -87,6 +88,8 @@ void at_exit(int) {
 
 int main(const int argc, const char **argv) {
 
+    http::logging::log_level = spdlog::level::debug;
+
     using namespace cppcoro;
 
     std::vector<std::string_view> args{argv + 1, argv + argc};
@@ -98,11 +101,11 @@ int main(const int argc, const char **argv) {
 
     io_service service;
 
-#define SINGLE_THREAD
+//#define SINGLE_THREAD
 #ifndef SINGLE_THREAD
     static const constinit int thread_count = 5;
     std::array<std::thread, thread_count> thread_pool;
-    std::generate(begin(thread_pool), end(thread_pool), [&] {
+    rng::generate(thread_pool, [&] {
         return std::thread([&] {
             service.process_events();
         });
@@ -130,7 +133,7 @@ int main(const int argc, const char **argv) {
         ));
 
 #ifndef SINGLE_THREAD
-    std::for_each(begin(thread_pool), end(thread_pool), [](auto &&th) {
+    rng::for_each(thread_pool, [](auto &&th) {
         th.join();
     });
 #endif
