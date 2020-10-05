@@ -56,12 +56,27 @@ auto do_serve = [&]() -> task<> {
 > requirements:
 > - GCC11
 > - linux kernel version >= 5.5
+> - my [cppcoro](https://github.com/Garcia6l20/cppcoro) fork
 
 ```bash
 mkdir build && cd build
 cmake -DBUILD_EXAMPLES=ON ..
 make -j
 ```
+
+## Development
+
+You can also use cppcoro without installing it for development purposes:
+
+```bash
+cmake -DCPPCORO_DEVEL=ON ..
+```
+
+## Examples
+
+- *examples/readme.cpp*: Example in this README.
+- *examples/hello_world.cpp*: Basic showcase.
+- *examples/simple_co_http_server*: Same as `python3 -m http.server` in cppcoro.
 
 ## TODO
 

@@ -158,7 +158,7 @@ using simple_co_server = http::controller_server<session,
 int main(int argc, char **argv) {
     bool debug = false;
     std::string endpoint_input = "127.0.0.1:4242";
-    uint32_t thread_count = 1;
+    uint32_t thread_count = std::thread::hardware_concurrency() - 1;
     auto cli
         = lyra::opt(debug)
           ["-d"]["--debug"]
