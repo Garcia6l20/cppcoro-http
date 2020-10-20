@@ -200,9 +200,10 @@ namespace cppcoro::http {
         using processor_type = http::request_processor<SessionType, controller_server<SessionType, ControllersT...>>;
         using session_type = SessionType;
 
-        controller_server(io_service &service, const net::ip_endpoint &endpoint) noexcept
+        template <typename...ArgsT>
+        controller_server(io_service &service, const net::ip_endpoint &endpoint, const ArgsT &...args) noexcept
             : processor_type{service, endpoint}
-            , controllers_{std::make_unique<ControllersT>(ControllersT{this->ios_})...}
+            , controllers_{std::make_unique<ControllersT>(ControllersT{this->ios_, args...})...}
         {
         }
 
