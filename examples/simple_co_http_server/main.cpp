@@ -29,7 +29,12 @@ using home_controller_def = http::route_controller<
 
 struct home_controller : home_controller_def
 {
-    using home_controller_def::home_controller_def;
+    fs::path path_;
+
+    home_controller(io_service &service, std::string_view path)
+        : home_controller_def{service}
+        , path_{path}
+    {}
 
     static constexpr std::string_view template_ = R"(
 <!DOCTYPE html>
@@ -58,16 +63,16 @@ struct home_controller : home_controller_def
 )";
 
     fmt::memory_buffer make_body(std::string_view path) {
-        auto chrooted_path = (fs::relative(fs::path{path.data(), path.data() + path.size()})).string();
-        if (chrooted_path.empty())
-            chrooted_path = ".";
-        fmt::print("-- get: {} ({})\n", path, chrooted_path);
+        auto link_path = fs::relative(path, path_).string();
+        if (link_path.empty())
+            link_path = ".";
+        fmt::print("-- get: {} ({})\n", path, link_path);
         fmt::memory_buffer out;
         fmt::format_to(out, R"(<div class="list-group">)");
-        for (auto &p: fs::directory_iterator(chrooted_path)) {
-            fmt::format_to(out, R"(<a class="list-group-item-action" href="/{full_path}">{path}</a>)",
-                           fmt::arg("path", fs::relative(p.path(), chrooted_path).c_str()),
-                           fmt::arg("full_path", fs::relative(p.path()).c_str()));
+        for (auto &p: fs::directory_iterator(path_ / path)) {
+            fmt::format_to(out, R"(<a class="list-group-item-action" href="/{link_path}">{path}</a>)",
+                           fmt::arg("path", fs::relative(p.path(), p.path().parent_path()).c_str()),
+                           fmt::arg("link_path", fs::relative(p.path(), path_).c_str()));
         }
         fmt::format_to(out, "</div>");
         return out;
@@ -99,11 +104,8 @@ struct home_controller : home_controller_def
 
     task<response_type> on_get(std::string_view path) {
         auto status = http::status::HTTP_STATUS_OK;
-        auto chrooted_path = (fs::relative(fs::path{path.data(), path.data() + path.size()})).string();
-        if (chrooted_path.empty())
-            chrooted_path = ".";
-        spdlog::info("chrooted_path: {}\n", chrooted_path);
-        if (fs::is_directory(chrooted_path)) {
+        spdlog::info("link_path: {}\n", path);
+        if (fs::is_directory(path_ / path)) {
             spdlog::info("get directory: {}\n", path);
             fmt::memory_buffer body;
             try {
@@ -128,11 +130,10 @@ struct home_controller : home_controller_def
         } else {
             spdlog::info("get file: {}\n", path);
             try {
-                auto chrooted_path = (fs::relative(fs::path{path.data(), path.data() + path.size()})).string();
                 co_return http::read_only_file_chunked_response{
                     http::status::HTTP_STATUS_OK,
                     http::read_only_file_chunk_provider{service(),
-                                                        chrooted_path}
+                                                        path_ / path}
                 };
             } catch (fs::filesystem_error &error) {
                 spdlog::error("error {}", error.what());
@@ -159,7 +160,7 @@ using simple_co_server = http::controller_server<session,
 int main(int argc, char **argv) {
     bool debug = false;
     std::string endpoint_input = "127.0.0.1:4242";
-    std::string path = "";
+    std::string path = ".";
     uint32_t thread_count = std::thread::hardware_concurrency() - 1;
     bool help = false;
     auto cli
@@ -196,9 +197,6 @@ int main(int argc, char **argv) {
     std::clamp(thread_count, 1u, 256u);
 
     spdlog::info("servicing {} at '{}' on {} threads\n", path, server_endpoint->to_string(), thread_count + 1);
-    if (!path.empty()) {
-        spdlog::warn("path argument not handled yet");
-    }
 
     std::vector<std::thread> tp{thread_count};
 
@@ -211,7 +209,7 @@ int main(int argc, char **argv) {
         auto _ = on_scope_exit([&] {
             service.stop();
         });
-        simple_co_server server{service, *server_endpoint};
+        simple_co_server server{service, *server_endpoint, std::string_view{path}};
         co_await server.serve();
     }(), [&]() -> task<> {
         service.process_events();
