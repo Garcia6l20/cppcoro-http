@@ -8,6 +8,7 @@
 #include <cppcoro/async_generator.hpp>
 #include <cppcoro/read_only_file.hpp>
 #include <cppcoro/write_only_file.hpp>
+#include <cppcoro/filesystem.hpp>
 
 #include <cppcoro/http/http_message.hpp>
 
@@ -42,9 +43,9 @@ namespace cppcoro::http {
     {
         using abstract_chunk_base::abstract_chunk_base;
 
-        std::string path_;
+        cppcoro::filesystem::path path_;
 
-        read_only_file_chunk_provider(io_service &service, std::string_view path) noexcept:
+        read_only_file_chunk_provider(io_service &service, cppcoro::filesystem::path path) noexcept:
             abstract_chunk_base{service}, path_{path} {}
 
         async_generator<std::string_view> read(size_t chunk_size) {
@@ -80,7 +81,7 @@ namespace cppcoro::http {
     {
         using abstract_chunk_base::abstract_chunk_base;
 
-        void init(std::string_view path) {
+        void init(const cppcoro::filesystem::path &path) {
             file_.emplace(write_only_file::open(service(), path, file_open_mode::create_always));
         }
 
