@@ -133,7 +133,7 @@ namespace cppcoro::http {
                         if (*chunk_generator_it_ != chunk_generator_->end()) {
                             co_return **chunk_generator_it_;
                         }
-                    } else if (co_await ++*chunk_generator_it_ != chunk_generator_->end()) {
+                    } else if (chunk_generator_it_ and co_await ++*chunk_generator_it_ != chunk_generator_->end()) {
                         co_return **chunk_generator_it_;
                     }
                     co_return std::string_view{};
