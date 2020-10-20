@@ -11,6 +11,7 @@ if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
 endif()
 include("${CMAKE_BINARY_DIR}/conan.cmake")
 
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 
 include(FetchContent)
 
@@ -25,6 +26,11 @@ if(CPPCORO_DEVEL)
   FetchContent_MakeAvailable(_fetch_cppcoro)
 else()
   find_package(cppcoro REQUIRED)
+endif()
+
+option(CPPCORO_HTTP_MBEDTLS "Enable SSL support with mbedTLS" OFF)
+if(CPPCORO_HTTP_MBEDTLS)
+  find_package(mbedtls REQUIRED)
 endif()
 
 #
@@ -92,6 +98,14 @@ target_precompile_headers(${PROJECT_NAME} INTERFACE
   <ctll/fixed_string.hpp>
   )
 add_library(cppcoro::http ALIAS ${PROJECT_NAME})
+
+if(CPPCORO_HTTP_MBEDTLS)
+  target_link_libraries(${PROJECT_NAME} INTERFACE
+    mbed::tls
+    mbed::crypto
+    mbed::x509
+    )
+endif()
 
 option(BUILD_EXAMPLES "Build examples" ON)
 if (BUILD_EXAMPLES)
