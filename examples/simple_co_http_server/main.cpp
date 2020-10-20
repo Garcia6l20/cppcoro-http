@@ -52,7 +52,9 @@ struct home_controller : home_controller_def
             <p class="lead">{path}</p>
         </div>
         <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
         {breadcrumb}
+        </ol>
         </nav>
         {body}
     </div>
@@ -80,15 +82,14 @@ struct home_controller : home_controller_def
 
     fmt::memory_buffer make_breadcrumb(std::string_view path) {
         fmt::memory_buffer buff;
-        constexpr std::string_view init = R"(<nav aria-label="breadcrumb"><ol class="breadcrumb">)"
-                                          R"(<li class="breadcrumb-item"><a href="/">Home</a></li>)";
+        constexpr std::string_view init = R"(<li class="breadcrumb-item"><a href="/">Home</a></li>)";
         buff.append(std::begin(init), std::end(init));
         fs::path p = path;
         std::vector<std::string> elems = {
             {fmt::format(R"(<li class="breadcrumb-item active" aria-current="page"><a href="/{}">{}</a></li>)", p.string(), p.filename().c_str())}
         };
         p = p.parent_path();
-        while (p.has_parent_path()) {
+        while (not p.filename().empty()) {
             elems.emplace_back(fmt::format(R"(<li class="breadcrumb-item"><a href="/{}">{}</a></li>)", p.string(), p.filename().c_str()));
             p = p.parent_path();
         }
