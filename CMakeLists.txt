@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.17)
 project(cppcoro_http)
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED  ON)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
   message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
@@ -17,7 +17,7 @@ include(FetchContent)
 #
 # cppcoro
 #
-option(CPPCORO_DEVEL "Fetch cppcoro for development" ON)
+option(CPPCORO_DEVEL "Fetch cppcoro for development" OFF)
 if(CPPCORO_DEVEL)
   FetchContent_Declare(_fetch_cppcoro
     GIT_REPOSITORY https://github.com/Garcia6l20/cppcoro

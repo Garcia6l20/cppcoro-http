@@ -5,8 +5,6 @@ It is built on top of [cppcoro](https://github.com/lewissbaker/cppcoro) library.
 
 ## HTTP Server
 
-- example:
-
 ```c++
 struct session {
     int id = std::rand();
@@ -51,20 +49,66 @@ auto do_serve = [&]() -> task<> {
     }()));
 ```
 
+## Examples
+
+- *[readme](./examples/readme.cpp)* : Example in this README.
+- *[hello_world](./examples/hello_world.cpp)* : Basic showcase.
+- *[simple_co_http_server](./examples/simple_co_http_server)* : Same as `python3 -m http.server` in cppcoro.
+
 ## Building
 
+
+### Linux
+
 > requirements:
-> - GCC11
+> - GCC11 (GCC >= 10 & clang >= 10 should be fine but not tested yet)
 > - linux kernel version >= 5.5
-> - my [cppcoro](https://github.com/Garcia6l20/cppcoro) fork
 
-```bash
-mkdir build && cd build
-cmake -DBUILD_EXAMPLES=ON ..
-make -j
-```
+1. Install liburing
+    
+    - arch:
+    ```bash
+    sudo pacman -Sy liburing
+    ```
+    
+    - others:
+    > Make sure your kernel is >= 5.6
+    ```
+    uname -r
+    [...]
+    git clone https://github.com/axboe/liburing.git
+    mkdir liburing/build && cd liburing/build
+    make -j && sudo make install
+    ```
 
-## Development
+1. Install cppcoro
+    
+    ```bash
+    git clone https://github.com/Garcia6l20/cppcoro.git
+    mkdir cppcoro/build && cd cppcoro/build
+    cmake -DCPPCORO_USE_IO_RING=ON ..
+    make -j && sudo make install
+    ```
+
+1. Install conan
+    ```bash
+    python -m pip install --upgrade conan
+    ```
+
+1. Build
+
+    ```bash
+    mkdir build && cd build
+    cmake -DBUILD_EXAMPLES=ON ..
+    make -j
+    ```
+
+### Windows
+
+> requirements:
+> - Linux
+   
+### Development
 
 You can also use cppcoro without installing it for development purposes:
 
@@ -72,14 +116,9 @@ You can also use cppcoro without installing it for development purposes:
 cmake -DCPPCORO_DEVEL=ON ..
 ```
 
-## Examples
-
-- *examples/readme.cpp*: Example in this README.
-- *examples/hello_world.cpp*: Basic showcase.
-- *examples/simple_co_http_server*: Same as `python3 -m http.server` in cppcoro.
-
 ## TODO
 
-- [x] chunked transfers
-- [ ] ssl support
+- [x] chunked transfers (server-side)
+- [ ] chunked transfers (client-side)
+- [ ] ssl support ([mbed-tls](https://github.com/ARMmbed/mbedtls))
 - [ ] ...

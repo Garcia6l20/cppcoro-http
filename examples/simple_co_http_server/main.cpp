@@ -7,6 +7,7 @@
 #include <lyra/cli_parser.hpp>
 #include <lyra/opt.hpp>
 #include <lyra/arg.hpp>
+#include <lyra/help.hpp>
 
 #include <thread>
 #include <ranges>
@@ -158,20 +159,30 @@ using simple_co_server = http::controller_server<session,
 int main(int argc, char **argv) {
     bool debug = false;
     std::string endpoint_input = "127.0.0.1:4242";
+    std::string path = "";
     uint32_t thread_count = std::thread::hardware_concurrency() - 1;
+    bool help = false;
     auto cli
-        = lyra::opt(debug)
+        = lyra::help(help)
+          | lyra::opt(debug)
           ["-d"]["--debug"]
               ("Enable debug output")
           | lyra::opt(thread_count, "thread_count")
           ["-t"]["--threads"]
               ("Thread count")
           | lyra::arg(endpoint_input, "endpoint")
-              ("Server endpoint");
+              ("Server endpoint")
+          | lyra::arg(path, "path")
+            ("Path");
     auto result = cli.parse({argc, argv});
     if (!result) {
         std::cerr << "Error in command line: " << result.errorMessage() << std::endl;
         exit(1);
+    }
+
+    if (help) {
+        std::cout << cli << '\n';
+        return 1;
     }
 
     if (debug) {
@@ -182,10 +193,12 @@ int main(int argc, char **argv) {
     io_service service;
     auto server_endpoint = net::ip_endpoint::from_string(endpoint_input);
 
-    // TODO - fix multithreading
     std::clamp(thread_count, 1u, 256u);
 
-    spdlog::info("listening at '{}' on {} threads\n", server_endpoint->to_string(), thread_count + 1);
+    spdlog::info("servicing {} at '{}' on {} threads\n", path, server_endpoint->to_string(), thread_count + 1);
+    if (!path.empty()) {
+        spdlog::warn("path argument not handled yet");
+    }
 
     std::vector<std::thread> tp{thread_count};
 
