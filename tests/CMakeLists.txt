@@ -5,11 +5,13 @@ FetchContent_Declare(_fetch_catch
 FetchContent_MakeAvailable(_fetch_catch)
 include(${_fetch_catch_SOURCE_DIR}/contrib/Catch.cmake)
 
-link_libraries(cppcoro::http Catch2::Catch2)
+add_library(tests-main STATIC main.cpp)
+target_link_libraries(tests-main PUBLIC cppcoro::http Catch2::Catch2)
 
 macro(basic_test _filename)
   get_filename_component(_target ${_filename} NAME_WE)
   add_executable(${_target} ${_filename})
+  target_link_libraries(${_target} PRIVATE tests-main)
   catch_discover_tests(${_target})
 endmacro()
 
