@@ -8,6 +8,7 @@
 #include <cppcoro/net/ssl/certificate.hpp>
 #include <cppcoro/net/ssl/context.hpp>
 #include <cppcoro/net/ssl/key.hpp>
+#include <cppcoro/net/ssl/handshake_operation.hpp>
 
 #include <cppcoro/net/socket.hpp>
 
@@ -37,17 +38,28 @@ namespace cppcoro::net::ssl
 			mbedtls_ssl_conf_authmode(&ssl_config_, int(mode));
 		}
 
+        void host_name(std::string_view host_name) noexcept
+        {
+            mbedtls_ssl_set_hostname(&ssl_context_, host_name.data());
+        }
+
+        handshake_operation encrypt() noexcept {
+			return {io_service_.io_queue(), ssl_context_};
+		}
+
 	private:
-		socket(net::socket&& sock, ssl::certificate&& certificate, ssl::private_key&& key)
+		socket(io_service &service, net::socket&& sock, ssl::certificate&& certificate, ssl::private_key&& key)
 			: net::socket{ std::forward<net::socket>(sock) }
+			, io_service_{service}
 			, certificate_{ std::forward<ssl::certificate>(certificate) }
 			, key_{ std::forward<ssl::private_key>(key) }
 		{
 			init(MBEDTLS_SSL_IS_SERVER);
 		}
 
-		explicit socket(net::socket&& sock)
+		explicit socket(io_service &service, net::socket&& sock)
 			: net::socket{ std::forward<net::socket>(sock) }
+            , io_service_{service}
 		{
 			init(MBEDTLS_SSL_IS_CLIENT);
 		}
@@ -95,6 +107,7 @@ namespace cppcoro::net::ssl
 
 		}
 
+		io_service &io_service_;
 		ssl::certificate certificate_{};
 		ssl::private_key key_{};
 		mbedtls_ssl_context ssl_context_{};
@@ -106,12 +119,13 @@ namespace cppcoro::net::ssl
 		io_service& ioSvc, ssl::certificate&& certificate, ssl::private_key&& key)
 	{
 		return socket(
+            ioSvc,
 			net::socket::create_tcpv4(ioSvc),
 			std::forward<ssl::certificate>(certificate),
 			std::forward<ssl::private_key>(key));
 	}
 	ssl::socket ssl::socket::create_tcpv4(io_service& ioSvc)
 	{
-		return socket(net::socket::create_tcpv4(ioSvc));
+		return socket(ioSvc, net::socket::create_tcpv4(ioSvc));
 	}
 }  // namespace cppcoro::net::ssl
