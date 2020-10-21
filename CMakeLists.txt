@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.16)
 project(cppcoro_http)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -22,8 +22,10 @@ option(CPPCORO_DEVEL "Fetch cppcoro for development" OFF)
 if(CPPCORO_DEVEL)
   FetchContent_Declare(_fetch_cppcoro
     GIT_REPOSITORY https://github.com/Garcia6l20/cppcoro
+    GIT_TAG io_ring
     )
   FetchContent_MakeAvailable(_fetch_cppcoro)
+  add_library(cppcoro::cppcoro ALIAS cppcoro)
 else()
   find_package(cppcoro REQUIRED)
 endif()

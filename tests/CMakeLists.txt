@@ -1,17 +1,18 @@
-FetchContent_Declare(_fetch_catch
-  GIT_REPOSITORY https://github.com/catchorg/catch2
-  GIT_TAG master
-  )
-FetchContent_MakeAvailable(_fetch_catch)
-include(${_fetch_catch_SOURCE_DIR}/contrib/Catch.cmake)
+conan_cmake_run(
+  REQUIRES
+    catch2/2.13.2
+  BASIC_SETUP CMAKE_TARGETS
+  BUILD outdated)
 
-add_library(tests-main STATIC main.cpp)
-target_link_libraries(tests-main PUBLIC cppcoro::http Catch2::Catch2)
+include(${CONAN_BUILD_DIRS_CATCH2}/Catch.cmake)
+
+add_library(cppcoro-http-test-main STATIC main.cpp)
+target_link_libraries(cppcoro-http-test-main PUBLIC cppcoro::http CONAN_PKG::catch2)
 
 macro(basic_test _filename)
   get_filename_component(_target ${_filename} NAME_WE)
   add_executable(${_target} ${_filename})
-  target_link_libraries(${_target} PRIVATE tests-main)
+  target_link_libraries(${_target} PRIVATE cppcoro-http-test-main)
   catch_discover_tests(${_target})
 endmacro()
 
