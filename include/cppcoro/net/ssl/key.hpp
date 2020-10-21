@@ -62,6 +62,10 @@ namespace cppcoro::net::ssl
 			}
 		}
 
+        [[nodiscard]] mbedtls_pk_context & ctx() {
+            return *ctx_;
+        }
+
 	private:
 		detail::mbedtls_pk_context_ptr ctx_ = detail::mbedtls_pk_context_ptr::make();
 	};

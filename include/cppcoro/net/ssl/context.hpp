@@ -65,19 +65,18 @@ namespace cppcoro::net::ssl
 			mbedtls_ctr_drbg_context ctr_drbg_context_;
 
 		public:
-
-            ~context() noexcept
-            {
-                mbedtls_entropy_free(&entropy_context_);
-                mbedtls_ctr_drbg_free(&ctr_drbg_context_);
-            }
-
-            const certificate &ca_certs() noexcept { return certificate_chain_; }
-
-			static auto instance()
-            {
-				return context{};
+			~context() noexcept
+			{
+				mbedtls_entropy_free(&entropy_context_);
+				mbedtls_ctr_drbg_free(&ctr_drbg_context_);
 			}
+
+			const certificate& ca_certs() const noexcept { return certificate_chain_; }
+            certificate& ca_certs() noexcept { return certificate_chain_; }
+
+			mbedtls_ctr_drbg_context& drbg_context() noexcept { return ctr_drbg_context_; }
+
+			static auto instance() { return context{}; }
 		};
 	}  // namespace detail
 

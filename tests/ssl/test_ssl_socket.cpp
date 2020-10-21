@@ -1,5 +1,6 @@
 #include <catch2/catch.hpp>
 
+//#define CPPCORO_SSL_DEBUG
 #include <cppcoro/net/ssl/socket.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
@@ -62,39 +63,60 @@ PXjRUbCEKdpOZsroF6rDkCleO5SZzC5fMgmQOFRKG/JPXO4z0sqfFIstIWkb7suq
 x5upWG2/c9eFDUONeuUWYt4=
 -----END PRIVATE KEY-----)" };
 
-SCENARIO("tcp sockets can connects together", "[cppcoro-http][ssl]")
+SCENARIO("tcp sockets can talk together", "[cppcoro-http][ssl]")
 {
+	spdlog::set_level(spdlog::level::debug);
+
 	io_service io_service;
 	auto endpoint = *net::ipv4_endpoint::from_string("127.0.0.1:4242");
 	(void)sync_wait(when_all(
 		[&]() -> task<> {
-			auto _ = on_scope_exit([&] { io_service.stop(); });
-			auto server = net::socket::create_tcpv4(io_service);
-			server.bind(endpoint);
-			auto sock = net::ssl::socket::create_tcpv4(
-				io_service, net::ssl::certificate{ cert }, net::ssl::private_key{ key });
-			co_await server.accept(sock);
-			sock.host_name("localhost");
-			spdlog::info("connection accepted");
-			co_await sock.encrypt();
-			spdlog::info("connection encrypted");
-			uint8_t buffer[64] = {};
-			size_t bytes_received = 0;
-			bytes_received = co_await sock.recv(buffer, sizeof(buffer));
-			std::string_view data{ reinterpret_cast<char*>(buffer), bytes_received };
-			spdlog::info("received {} bytes: {}", bytes_received, data);
-			REQUIRE(data == "hello ssl !!")
+            auto _ = on_scope_exit([&] { io_service.stop(); });
+			try
+			{
+				auto server = net::socket::create_tcpv4(io_service);
+				server.bind(endpoint);
+				auto sock = net::ssl::socket::create_tcpv4(
+					io_service, net::ssl::certificate{ cert }, net::ssl::private_key{ key });
+				server.listen();
+				co_await server.accept(sock);
+				sock.host_name("localhost");
+				spdlog::info("connection accepted");
+				co_await sock.encrypt();
+				spdlog::info("connection encrypted");
+				uint8_t buffer[64] = {};
+				auto bytes_received = co_await sock.recv(buffer, sizeof(buffer));
+				REQUIRE(bytes_received == 12);
+				std::string_view data{ reinterpret_cast<char*>(buffer), bytes_received };
+				spdlog::info("received {} bytes: {}", bytes_received, data);
+				using namespace std::literals;
+				REQUIRE(data == "hello ssl !!"sv);
+			}
+			catch (std::exception& error)
+			{
+				spdlog::error("server error: {}", error.what());
+			}
 			co_return;
 		}(),
 		[&]() -> task<> {
-			std::string_view data{ "hello ssl !!" };
-			auto client = net::ssl::socket::create_tcpv4(io_service);
-			co_await client.connect(endpoint);
-			spdlog::info("connected");
-			co_await client.encrypt();
-			spdlog::info("encrypted");
-			auto sent_bytes = co_await client.send(data.data(), data.size());
-			REQUIRE(sent_bytes == data.size())
-				:
+			try
+			{
+				std::string_view data{ "hello ssl !!" };
+				auto client = net::ssl::socket::create_tcpv4(io_service);
+				co_await client.connect(endpoint);
+				spdlog::info("connected");
+				co_await client.encrypt();
+				spdlog::info("encrypted");
+				auto sent_bytes = co_await client.send(data.data(), data.size());
+				REQUIRE(sent_bytes == data.size());
+			}
+			catch (std::exception& error)
+			{
+				spdlog::error("client error: {}", error.what());
+			}
+		}(),
+		[&]() -> task<> {
+			io_service.process_events();
+			co_return;
 		}()));
 }
