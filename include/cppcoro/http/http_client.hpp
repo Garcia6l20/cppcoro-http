@@ -3,11 +3,11 @@
  */
 #pragma once
 
-#include <cppcoro/tcp/tcp.hpp>
 #include <cppcoro/http/http_connection.hpp>
 #include <cppcoro/http/http_response.hpp>
-#include <cppcoro/task.hpp>
+#include <cppcoro/net/tcp.hpp>
 #include <cppcoro/operation_cancelled.hpp>
+#include <cppcoro/task.hpp>
 
 #include <utility>
 #include <vector>

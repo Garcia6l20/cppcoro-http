@@ -68,7 +68,7 @@ conan_cmake_run(
 # cppcoro/http
 #
 add_library(${PROJECT_NAME} STATIC
-  include/cppcoro/tcp/tcp.hpp
+  include/cppcoro/net/tcp.hpp
   include/cppcoro/http/http.hpp
   include/cppcoro/http/http_message.hpp
   include/cppcoro/http/http_request.hpp

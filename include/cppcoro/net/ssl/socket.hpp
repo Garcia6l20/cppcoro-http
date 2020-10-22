@@ -9,8 +9,10 @@
 #include <cppcoro/net/ssl/context.hpp>
 #include <cppcoro/net/ssl/key.hpp>
 
+#include <cppcoro/net/ip_endpoint.hpp>
 #include <cppcoro/net/socket.hpp>
 #include <cppcoro/task.hpp>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -25,9 +27,50 @@ namespace cppcoro::net::ssl
 
 	class socket : public net::socket
 	{
+	private:
+		enum class mode
+		{
+			server,
+			client
+		};
+
+		template<mode mode_, bool tcp_v6 = false>
+		static socket create(
+			io_service& ioSvc,
+			std::optional<ssl::certificate> certificate,
+			std::optional<ssl::private_key> pk);
+
 	public:
-		static socket create_tcpv4(io_service& ioSvc, ssl::certificate&&, ssl::private_key&&);
-		static socket create_tcpv4(io_service& ioSvc);
+		static socket
+		create_server(io_service& io_service, ssl::certificate certificate, ssl::private_key pk)
+		{
+			return create<mode::server>(
+				io_service,
+				std::forward<decltype(certificate)>(certificate),
+				std::forward<decltype(pk)>(pk));
+		}
+		static socket create_client(
+			io_service& io_service,
+			std::optional<ssl::certificate> certificate = {},
+			std::optional<ssl::private_key> pk = {})
+		{
+			return create<mode::client>(io_service, std::move(certificate), std::move(pk));
+		}
+		static socket create_server_v6(
+			io_service& io_service, ssl::certificate&& certificate, ssl::private_key&& pk)
+		{
+			return create<mode::server, true>(
+				io_service,
+				std::forward<decltype(certificate)>(certificate),
+				std::forward<decltype(pk)>(pk));
+		}
+		static socket create_client_v6(
+			io_service& io_service,
+			std::optional<ssl::certificate> certificate = {},
+			std::optional<ssl::private_key> pk = {})
+		{
+			return create<mode::client, true>(io_service, std::move(certificate), std::move(pk));
+		}
 
 		virtual ~socket() noexcept
 		{
@@ -99,10 +142,10 @@ namespace cppcoro::net::ssl
 				else
 				{
 					offset += result;
-                    if (offset >= size)
-                    {
-                        co_return size;
-                    }
+					if (offset >= size)
+					{
+						co_return size;
+					}
 				}
 			}
 		}
@@ -129,7 +172,7 @@ namespace cppcoro::net::ssl
 					offset += result;
 					if (offset >= size || result == 0)
 					{
-                        co_return offset;
+						co_return offset;
 					}
 				}
 			}
@@ -144,30 +187,19 @@ namespace cppcoro::net::ssl
 		socket(
 			io_service& service,
 			net::socket sock,
-			ssl::certificate&& certificate,
-			ssl::private_key&& key)
+			mode mode_,
+			std::optional<ssl::certificate> cert,
+			std::optional<ssl::private_key> key)
 			: net::socket{ std::move(sock) }
 			, io_service_{ service }
-			, certificate_{ std::forward<ssl::certificate>(certificate) }
-			, key_{ std::forward<ssl::private_key>(key) }
-		{
-			init(MBEDTLS_SSL_IS_SERVER);
-		}
-
-		explicit socket(io_service& service, net::socket sock)
-			: net::socket{ std::move(sock) }
-			, io_service_{ service }
-		{
-			init(MBEDTLS_SSL_IS_CLIENT);
-		}
-
-		void init(int endpoint)
+			, certificate_{ std::move(cert) }
+			, key_{ std::move(key) }
 		{
 			mbedtls_ssl_init(&ssl_context_);
 			mbedtls_ssl_config_init(&ssl_config_);
 			if (auto error = mbedtls_ssl_config_defaults(
 					&ssl_config_,
-					endpoint,
+					mode_ == mode::server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
 					MBEDTLS_SSL_TRANSPORT_STREAM,
 					MBEDTLS_SSL_PRESET_DEFAULT);
 				error != 0)
@@ -203,6 +235,7 @@ namespace cppcoro::net::ssl
 
 			if (certificate_)
 			{
+				assert(key_);
 				if (auto error = mbedtls_ssl_conf_own_cert(
 						&ssl_config_, &certificate_->chain(), &key_->ctx());
 					error != 0)
@@ -311,17 +344,26 @@ namespace cppcoro::net::ssl
 		ssl_buf<true> to_send_{};
 	};
 
-	ssl::socket ssl::socket::create_tcpv4(
-		io_service& ioSvc, ssl::certificate&& certificate, ssl::private_key&& key)
+	template<ssl::socket::mode mode_, bool tcp_v6>
+	ssl::socket ssl::socket::create(
+		cppcoro::io_service& io_service,
+		std::optional<ssl::certificate> cert,
+		std::optional<ssl::private_key> pk)
 	{
-		return socket(
-			ioSvc,
-			net::socket::create_tcpv4(ioSvc),
-			std::forward<ssl::certificate>(certificate),
-			std::forward<ssl::private_key>(key));
-	}
-	ssl::socket ssl::socket::create_tcpv4(io_service& ioSvc)
-	{
-		return socket(ioSvc, net::socket::create_tcpv4(ioSvc));
+		if constexpr (mode_ == mode::server)
+		{
+			assert(cert && pk);
+		}
+		std::optional<net::socket> sock;
+		if constexpr (tcp_v6)
+		{
+			sock = socket::create_tcpv6(io_service);
+		}
+		else
+		{
+			sock = socket::create_tcpv4(io_service);
+		}
+		assert(sock);
+		return socket(io_service, std::move(*sock), mode_, std::move(cert), std::move(pk));
 	}
 }  // namespace cppcoro::net::ssl

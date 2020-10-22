@@ -76,7 +76,7 @@ SCENARIO("tcp sockets can talk together", "[cppcoro-http][ssl]")
 			{
 				auto server = net::socket::create_tcpv4(io_service);
 				server.bind(endpoint);
-				auto sock = net::ssl::socket::create_tcpv4(
+				auto sock = net::ssl::socket::create_server(
 					io_service, net::ssl::certificate{ cert }, net::ssl::private_key{ key });
 				server.listen();
 				co_await server.accept(sock);
@@ -102,7 +102,7 @@ SCENARIO("tcp sockets can talk together", "[cppcoro-http][ssl]")
 			try
 			{
 				std::string_view data{ "hello ssl !!" };
-				auto client = net::ssl::socket::create_tcpv4(io_service);
+				auto client = net::ssl::socket::create_client(io_service);
 				co_await client.connect(endpoint);
 				spdlog::info("connected");
 				co_await client.encrypt();

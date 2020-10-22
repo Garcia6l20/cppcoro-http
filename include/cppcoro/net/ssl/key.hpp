@@ -5,8 +5,8 @@
 
 #include <mbedtls/pk.h>
 
+#include <cppcoro/details/c_ptr.hpp>
 #include <cppcoro/filesystem.hpp>
-#include <cppcoro/net/ssl/c_ptr.hpp>
 #include <cppcoro/net/ssl/error.hpp>
 
 #include <span>
