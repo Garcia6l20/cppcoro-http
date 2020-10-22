@@ -1,6 +1,7 @@
 #include <catch2/catch.hpp>
 
 //#define CPPCORO_SSL_DEBUG
+#include <cppcoro/async_scope.hpp>
 #include <cppcoro/net/ssl/socket.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
@@ -63,7 +64,7 @@ PXjRUbCEKdpOZsroF6rDkCleO5SZzC5fMgmQOFRKG/JPXO4z0sqfFIstIWkb7suq
 x5upWG2/c9eFDUONeuUWYt4=
 -----END PRIVATE KEY-----)" };
 
-SCENARIO("tcp sockets can talk together", "[cppcoro-http][ssl]")
+SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 {
 	spdlog::set_level(spdlog::level::debug);
 
@@ -71,7 +72,7 @@ SCENARIO("tcp sockets can talk together", "[cppcoro-http][ssl]")
 	auto endpoint = *net::ipv4_endpoint::from_string("127.0.0.1:4242");
 	(void)sync_wait(when_all(
 		[&]() -> task<> {
-            auto _ = on_scope_exit([&] { io_service.stop(); });
+			auto _ = on_scope_exit([&] { io_service.stop(); });
 			try
 			{
 				auto server = net::socket::create_tcpv4(io_service);
@@ -114,6 +115,79 @@ SCENARIO("tcp sockets can talk together", "[cppcoro-http][ssl]")
 			{
 				spdlog::error("client error: {}", error.what());
 			}
+		}(),
+		[&]() -> task<> {
+			io_service.process_events();
+			co_return;
+		}()));
+}
+
+SCENARIO("multiple ssl clients", "[cppcoro-http][ssl]")
+{
+	spdlog::set_level(spdlog::level::debug);
+
+	constexpr size_t client_count = 128;
+
+	io_service io_service{256};
+	auto endpoint = *net::ipv4_endpoint::from_string("127.0.0.1:4343");
+	(void)sync_wait(when_all(
+		[&]() -> task<> {
+			auto _ = on_scope_exit([&] { io_service.stop(); });
+			try
+			{
+				auto server = net::socket::create_tcpv4(io_service);
+				server.bind(endpoint);
+				server.listen();
+				async_scope scope;
+				for (size_t client_num = 0; client_num < client_count; ++client_num)
+				{
+                    auto sock = net::ssl::socket::create_server(
+                        io_service, net::ssl::certificate{ cert }, net::ssl::private_key{ key });
+                    sock.host_name("localhost");
+					co_await server.accept(sock);
+					spdlog::info("connection {} accepted", client_num + 1);
+					scope.spawn([](net::ssl::socket sock, size_t client_num) -> task<> {
+						co_await sock.encrypt();
+						spdlog::info("connection {} encrypted", client_num + 1);
+						uint8_t buffer[64] = {};
+						auto bytes_received = co_await sock.recv(buffer, sizeof(buffer));
+						std::string_view data{ reinterpret_cast<char*>(buffer), bytes_received };
+						spdlog::info(
+							"received {} bytes from client {}: {}",
+							bytes_received,
+							client_num + 1,
+							data);
+						using namespace std::literals;
+						REQUIRE(data == fmt::format("hello ssl {} !!", client_num + 1));
+					}(std::move(sock), client_num));
+				}
+				co_await scope.join();
+			}
+			catch (std::exception& error)
+			{
+				spdlog::error("server error: {}", error.what());
+			}
+			co_return;
+		}(),
+		[&]() -> task<> {
+			async_scope scope;
+			for (size_t client_num = 0; client_num < client_count; ++client_num)
+			{
+				auto client = net::ssl::socket::create_client(io_service);
+				scope.spawn(
+					[](net::ssl::socket client,
+					   net::ipv4_endpoint& endpoint,
+					   size_t client_num) -> task<> {
+						std::string data = fmt::format("hello ssl {} !!", client_num + 1);
+						co_await client.connect(endpoint);
+						spdlog::info("connected {}", client_num + 1);
+						co_await client.encrypt();
+						spdlog::info("encrypted {}", client_num + 1);
+						auto sent_bytes = co_await client.send(data.data(), data.size());
+						REQUIRE(sent_bytes == data.size());
+					}(std::move(client), endpoint, client_num));
+			}
+			co_await scope.join();
 		}(),
 		[&]() -> task<> {
 			io_service.process_events();

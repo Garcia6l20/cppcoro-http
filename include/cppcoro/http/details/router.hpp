@@ -13,8 +13,8 @@
 
 #include <cppcoro/http/route_parameter.hpp>
 
-#include <cppcoro/details/function_traits.hpp>
-#include <cppcoro/details/type_index.hpp>
+#include <cppcoro/detail/function_traits.hpp>
+#include <cppcoro/detail/type_index.hpp>
 
 namespace cppcoro::http::detail {
 

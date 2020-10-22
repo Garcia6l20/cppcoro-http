@@ -83,8 +83,8 @@ add_library(${PROJECT_NAME} STATIC
   include/cppcoro/http/details/router.hpp
   include/cppcoro/http/details/static_parser_handler.hpp
 
-  include/cppcoro/details/function_traits.hpp
-  include/cppcoro/details/type_index.hpp
+  include/cppcoro/detail/function_traits.hpp
+  include/cppcoro/detail/type_index.hpp
 
   src/http.cpp
   )

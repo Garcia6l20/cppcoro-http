@@ -12,6 +12,9 @@
 #include <cppcoro/net/ip_endpoint.hpp>
 #include <cppcoro/net/socket.hpp>
 #include <cppcoro/task.hpp>
+
+#include <cppcoro/detail/c_ptr.hpp>
+
 #include <utility>
 
 #include <spdlog/spdlog.h>
@@ -24,6 +27,14 @@ namespace cppcoro::net::ssl
 		required = MBEDTLS_SSL_VERIFY_REQUIRED,
 		optional = MBEDTLS_SSL_VERIFY_OPTIONAL,
 	};
+
+	namespace detail
+	{
+		using mbedtls_ssl_context_ptr =
+			cppcoro::detail::c_unique_ptr<mbedtls_ssl_context, mbedtls_ssl_init, mbedtls_ssl_free>;
+		using mbedtls_ssl_config_ptr = cppcoro::detail::
+			c_unique_ptr<mbedtls_ssl_config, mbedtls_ssl_config_init, mbedtls_ssl_config_free>;
+	}  // namespace detail
 
 	class socket : public net::socket
 	{
@@ -41,8 +52,37 @@ namespace cppcoro::net::ssl
 			std::optional<ssl::private_key> pk);
 
 	public:
+
+		socket(socket&& other) noexcept
+			: net::socket(std::move(other))
+			, io_service_{other.io_service_}
+			, certificate_{std::move(other.certificate_)}
+            , key_{std::move(other.key_)}
+			, ssl_context_{std::move(other.ssl_context_)}
+			, ssl_config_{std::move(other.ssl_config_)}
+			, timing_delay_context_{other.timing_delay_context_}
+		    , encrypted_{other.encrypted_}
+            , to_receive_{other.to_receive_}
+            , to_send_{other.to_send_}
+		{
+			// update callbacks
+
+			mbedtls_ssl_set_bio(
+				ssl_context_.get(),
+				this,
+				&ssl::socket::_mbedtls_send,
+				&ssl::socket::_mbedtls_recv,
+				&ssl::socket::_mbedtls_recv_timeout);
+
+            mbedtls_ssl_conf_verify(ssl_config_.get(), &ssl::socket::_mbedtls_verify_cert, this);
+
+#ifdef CPPCORO_SSL_DEBUG
+            mbedtls_ssl_conf_dbg(&ssl_config_, &ssl::socket::_mbedtls_debug, this);
+#endif
+		}
+
 		static socket
-		create_server(io_service& io_service, ssl::certificate certificate, ssl::private_key pk)
+		create_server(io_service& io_service, ssl::certificate&& certificate, ssl::private_key&& pk)
 		{
 			return create<mode::server>(
 				io_service,
@@ -72,20 +112,16 @@ namespace cppcoro::net::ssl
 			return create<mode::client, true>(io_service, std::move(certificate), std::move(pk));
 		}
 
-		virtual ~socket() noexcept
-		{
-			mbedtls_ssl_free(&ssl_context_);
-			mbedtls_ssl_config_free(&ssl_config_);
-		}
+		virtual ~socket() noexcept = default;
 
 		void peer_verify_mode(peer_verify_mode mode) noexcept
 		{
-			mbedtls_ssl_conf_authmode(&ssl_config_, int(mode));
+			mbedtls_ssl_conf_authmode(ssl_config_.get(), int(mode));
 		}
 
 		void host_name(std::string_view host_name) noexcept
 		{
-			mbedtls_ssl_set_hostname(&ssl_context_, host_name.data());
+			mbedtls_ssl_set_hostname(ssl_context_.get(), host_name.data());
 		}
 
 		task<> encrypt()
@@ -95,7 +131,7 @@ namespace cppcoro::net::ssl
 
 			while (true)
 			{
-				auto result = mbedtls_ssl_handshake(&ssl_context_);
+				auto result = mbedtls_ssl_handshake(ssl_context_.get());
 				if (result == 0)
 				{
 					break;
@@ -129,7 +165,9 @@ namespace cppcoro::net::ssl
 			while (true)
 			{
 				int result = mbedtls_ssl_write(
-					&ssl_context_, reinterpret_cast<const uint8_t*>(data) + offset, size - offset);
+					ssl_context_.get(),
+					reinterpret_cast<const uint8_t*>(data) + offset,
+					size - offset);
 				if (result == MBEDTLS_ERR_SSL_WANT_WRITE)
 				{
 					assert(to_send_);  // ensure buffer/len properly setup
@@ -156,7 +194,7 @@ namespace cppcoro::net::ssl
 			while (true)
 			{
 				int result = mbedtls_ssl_read(
-					&ssl_context_, reinterpret_cast<uint8_t*>(data) + offset, size - offset);
+					ssl_context_.get(), reinterpret_cast<uint8_t*>(data) + offset, size - offset);
 				if (result == MBEDTLS_ERR_SSL_WANT_READ)
 				{
 					assert(to_receive_);  // ensure buffer/len properly setup
@@ -195,10 +233,8 @@ namespace cppcoro::net::ssl
 			, certificate_{ std::move(cert) }
 			, key_{ std::move(key) }
 		{
-			mbedtls_ssl_init(&ssl_context_);
-			mbedtls_ssl_config_init(&ssl_config_);
 			if (auto error = mbedtls_ssl_config_defaults(
-					&ssl_config_,
+					ssl_config_.get(),
 					mode_ == mode::server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
 					MBEDTLS_SSL_TRANSPORT_STREAM,
 					MBEDTLS_SSL_PRESET_DEFAULT);
@@ -209,25 +245,26 @@ namespace cppcoro::net::ssl
 										 "mbedtls_ssl_config_defaults" };
 			}
 
-			mbedtls_ssl_conf_ca_chain(&ssl_config_, &context.ca_certs().chain(), nullptr);
+			mbedtls_ssl_conf_ca_chain(ssl_config_.get(), &context.ca_certs().chain(), nullptr);
 
 			peer_verify_mode(peer_verify_mode::optional);
 
 			mbedtls_ssl_set_bio(
-				&ssl_context_,
+				ssl_context_.get(),
 				this,
 				&ssl::socket::_mbedtls_send,
 				&ssl::socket::_mbedtls_recv,
 				&ssl::socket::_mbedtls_recv_timeout);
 
-			mbedtls_ssl_set_timer_cb(
-				&ssl_context_,
-				&timing_delay_context_,
-				mbedtls_timing_set_delay,
-				mbedtls_timing_get_delay);
+//			mbedtls_ssl_set_timer_cb(
+//				ssl_context_.get(),
+//				&timing_delay_context_,
+//				mbedtls_timing_set_delay,
+//				mbedtls_timing_get_delay);
 
-			mbedtls_ssl_conf_rng(&ssl_config_, mbedtls_ctr_drbg_random, &context.drbg_context());
-			mbedtls_ssl_conf_verify(&ssl_config_, &ssl::socket::_mbedtls_verify_cert, this);
+			mbedtls_ssl_conf_rng(
+				ssl_config_.get(), mbedtls_ctr_drbg_random, &context.drbg_context());
+			mbedtls_ssl_conf_verify(ssl_config_.get(), &ssl::socket::_mbedtls_verify_cert, this);
 
 #ifdef CPPCORO_SSL_DEBUG
 			mbedtls_ssl_conf_dbg(&ssl_config_, &ssl::socket::_mbedtls_debug, this);
@@ -237,7 +274,7 @@ namespace cppcoro::net::ssl
 			{
 				assert(key_);
 				if (auto error = mbedtls_ssl_conf_own_cert(
-						&ssl_config_, &certificate_->chain(), &key_->ctx());
+						ssl_config_.get(), &certificate_->chain(), &key_->ctx());
 					error != 0)
 				{
 					throw std::system_error{ error,
@@ -246,7 +283,7 @@ namespace cppcoro::net::ssl
 				}
 			}
 
-			if (auto error = mbedtls_ssl_setup(&ssl_context_, &ssl_config_); error != 0)
+			if (auto error = mbedtls_ssl_setup(ssl_context_.get(), ssl_config_.get()); error != 0)
 			{
 				throw std::system_error{ error, ssl::error_category, "mbedtls_ssl_setup" };
 			}
@@ -320,26 +357,26 @@ namespace cppcoro::net::ssl
 			}
 		}
 
+        template<bool const_ = false>
+        struct ssl_buf
+        {
+            size_t len = 0;
+            std::conditional_t<const_, const uint8_t*, uint8_t*> buf = nullptr;
+            size_t actual_len = 0;
+
+            operator bool() const noexcept { return len != 0 && buf != nullptr; }
+            bool operator==(std::tuple<size_t, const uint8_t*> other) const noexcept
+            {
+                return len == std::get<0>(other) && buf == std::get<1>(other);
+            }
+        };
 		io_service& io_service_;
 		std::optional<ssl::certificate> certificate_{};
 		std::optional<ssl::private_key> key_{};
-		mbedtls_ssl_context ssl_context_{};
-		mbedtls_ssl_config ssl_config_{};
+		detail::mbedtls_ssl_context_ptr ssl_context_ = detail::mbedtls_ssl_context_ptr::make();
+		detail::mbedtls_ssl_config_ptr ssl_config_ = detail::mbedtls_ssl_config_ptr::make();
 		mbedtls_timing_delay_context timing_delay_context_{};
 		bool encrypted_ = false;
-		template<bool const_ = false>
-		struct ssl_buf
-		{
-			size_t len = 0;
-			std::conditional_t<const_, const uint8_t*, uint8_t*> buf = nullptr;
-			size_t actual_len = 0;
-
-			operator bool() const noexcept { return len != 0 && buf != nullptr; }
-			bool operator==(std::tuple<size_t, const uint8_t*> other) const noexcept
-			{
-				return len == std::get<0>(other) && buf == std::get<1>(other);
-			}
-		};
 		ssl_buf<> to_receive_{};
 		ssl_buf<true> to_send_{};
 	};
