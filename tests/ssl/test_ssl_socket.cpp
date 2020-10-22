@@ -1,6 +1,7 @@
 #include <catch2/catch.hpp>
 
 //#define CPPCORO_SSL_DEBUG
+
 #include <cppcoro/async_scope.hpp>
 #include <cppcoro/net/ssl/socket.hpp>
 #include <cppcoro/on_scope_exit.hpp>
@@ -66,7 +67,9 @@ x5upWG2/c9eFDUONeuUWYt4=
 
 SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 {
+#ifdef CPPCORO_SSL_DEBUG
 	spdlog::set_level(spdlog::level::debug);
+#endif
 
 	io_service io_service;
 	auto endpoint = *net::ipv4_endpoint::from_string("127.0.0.1:4242");
@@ -82,14 +85,14 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 				server.listen();
 				co_await server.accept(sock);
 				sock.host_name("localhost");
-				spdlog::info("connection accepted");
+				spdlog::debug("connection accepted");
 				co_await sock.encrypt();
-				spdlog::info("connection encrypted");
+				spdlog::debug("connection encrypted");
 				uint8_t buffer[64] = {};
 				auto bytes_received = co_await sock.recv(buffer, sizeof(buffer));
 				REQUIRE(bytes_received == 12);
 				std::string_view data{ reinterpret_cast<char*>(buffer), bytes_received };
-				spdlog::info("received {} bytes: {}", bytes_received, data);
+				spdlog::debug("received {} bytes: {}", bytes_received, data);
 				using namespace std::literals;
 				REQUIRE(data == "hello ssl !!"sv);
 			}
@@ -105,9 +108,9 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 				std::string_view data{ "hello ssl !!" };
 				auto client = net::ssl::socket::create_client(io_service);
 				co_await client.connect(endpoint);
-				spdlog::info("connected");
+				spdlog::debug("connected");
 				co_await client.encrypt();
-				spdlog::info("encrypted");
+				spdlog::debug("encrypted");
 				auto sent_bytes = co_await client.send(data.data(), data.size());
 				REQUIRE(sent_bytes == data.size());
 			}
@@ -122,13 +125,23 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 		}()));
 }
 
-SCENARIO("multiple ssl clients", "[cppcoro-http][ssl]")
-{
-	spdlog::set_level(spdlog::level::debug);
+#include <future>
+#include <ranges>
 
+namespace rng = std::ranges;
+
+template<size_t tread_count = 0>
+void multi_clients_test()
+{
 	constexpr size_t client_count = 128;
 
-	io_service io_service{256};
+	io_service io_service{ 256 };
+	std::array<std::future<void>, tread_count> futures;
+
+	rng::generate(futures, [&io_service] {
+		return std::async([&io_service] { io_service.process_events(); });
+	});
+
 	auto endpoint = *net::ipv4_endpoint::from_string("127.0.0.1:4343");
 	(void)sync_wait(when_all(
 		[&]() -> task<> {
@@ -141,18 +154,18 @@ SCENARIO("multiple ssl clients", "[cppcoro-http][ssl]")
 				async_scope scope;
 				for (size_t client_num = 0; client_num < client_count; ++client_num)
 				{
-                    auto sock = net::ssl::socket::create_server(
-                        io_service, net::ssl::certificate{ cert }, net::ssl::private_key{ key });
-                    sock.host_name("localhost");
+					auto sock = net::ssl::socket::create_server(
+						io_service, net::ssl::certificate{ cert }, net::ssl::private_key{ key });
+					sock.host_name("localhost");
 					co_await server.accept(sock);
-					spdlog::info("connection {} accepted", client_num + 1);
+					spdlog::debug("connection {} accepted", client_num + 1);
 					scope.spawn([](net::ssl::socket sock, size_t client_num) -> task<> {
 						co_await sock.encrypt();
-						spdlog::info("connection {} encrypted", client_num + 1);
+						spdlog::debug("connection {} encrypted", client_num + 1);
 						uint8_t buffer[64] = {};
 						auto bytes_received = co_await sock.recv(buffer, sizeof(buffer));
 						std::string_view data{ reinterpret_cast<char*>(buffer), bytes_received };
-						spdlog::info(
+						spdlog::debug(
 							"received {} bytes from client {}: {}",
 							bytes_received,
 							client_num + 1,
@@ -180,9 +193,9 @@ SCENARIO("multiple ssl clients", "[cppcoro-http][ssl]")
 					   size_t client_num) -> task<> {
 						std::string data = fmt::format("hello ssl {} !!", client_num + 1);
 						co_await client.connect(endpoint);
-						spdlog::info("connected {}", client_num + 1);
+						spdlog::debug("connected {}", client_num + 1);
 						co_await client.encrypt();
-						spdlog::info("encrypted {}", client_num + 1);
+						spdlog::debug("encrypted {}", client_num + 1);
 						auto sent_bytes = co_await client.send(data.data(), data.size());
 						REQUIRE(sent_bytes == data.size());
 					}(std::move(client), endpoint, client_num));
@@ -193,4 +206,22 @@ SCENARIO("multiple ssl clients", "[cppcoro-http][ssl]")
 			io_service.process_events();
 			co_return;
 		}()));
+
+	rng::for_each(futures, [](auto&& f) { f.get(); });
+}
+
+SCENARIO("multiple ssl clients", "[cppcoro-http][ssl]")
+{
+#ifdef CPPCORO_SSL_DEBUG
+	spdlog::set_level(spdlog::level::debug);
+#endif
+	multi_clients_test();
+}
+
+SCENARIO("multiple ssl clients multi-threaded", "[cppcoro-http][ssl]")
+{
+#ifdef CPPCORO_SSL_DEBUG
+	spdlog::set_level(spdlog::level::debug);
+#endif
+	multi_clients_test<10>();
 }
