@@ -28,6 +28,20 @@ namespace cppcoro::net::ssl
 		optional = MBEDTLS_SSL_VERIFY_OPTIONAL,
 	};
 
+	enum class verify_flags : uint32_t
+    {
+		none = 0,
+		allow_untrusted = 1u << 0u,
+	};
+    inline constexpr verify_flags operator|(verify_flags lhs, verify_flags rhs)
+    {
+        return static_cast<verify_flags>(static_cast<uint32_t>(lhs) | static_cast<uint32_t>(rhs));
+    }
+    inline constexpr verify_flags operator&(verify_flags lhs, verify_flags rhs)
+    {
+        return static_cast<verify_flags>(static_cast<uint32_t>(lhs) & static_cast<uint32_t>(rhs));
+    }
+
 	namespace detail
 	{
 		using mbedtls_ssl_context_ptr =
@@ -83,7 +97,18 @@ namespace cppcoro::net::ssl
 		static int
 		_mbedtls_verify_cert(void* ctx, mbedtls_x509_crt* crt, int depth, uint32_t* flags) noexcept
 		{
-			// TODO
+			auto &self = *reinterpret_cast<ssl::socket*>(ctx);
+			if ((*flags & MBEDTLS_X509_BADCERT_SKIP_VERIFY) &&
+				self.verify_mode_ == peer_verify_mode::none) {
+				*flags &= MBEDTLS_X509_BADCERT_SKIP_VERIFY;
+			}
+			if ((self.verify_flags_ & ssl::verify_flags::allow_untrusted) != ssl::verify_flags::none)
+            {
+				*flags &= ~uint32_t(
+                    MBEDTLS_X509_BADCERT_NOT_TRUSTED |
+                    MBEDTLS_X509_BADCRL_NOT_TRUSTED
+					);
+			}
 			return 0;
 		}
 
@@ -149,6 +174,7 @@ namespace cppcoro::net::ssl
 			, io_service_{ service }
 			, certificate_{ std::move(cert) }
 			, key_{ std::move(key) }
+		    , verify_mode_{ mode_ == mode::server ? peer_verify_mode::none : peer_verify_mode::required }
 		{
 			if (auto error = mbedtls_ssl_config_defaults(
 					ssl_config_.get(),
@@ -164,13 +190,10 @@ namespace cppcoro::net::ssl
 
 			mbedtls_ssl_conf_ca_chain(ssl_config_.get(), &context.ca_certs().chain(), nullptr);
 
-			peer_verify_mode(peer_verify_mode::optional);
-
-			//			mbedtls_ssl_set_timer_cb(
-			//				ssl_context_.get(),
-			//				&timing_delay_context_,
-			//				mbedtls_timing_set_delay,
-			//				mbedtls_timing_get_delay);
+			// default:
+			//  - server: dont verify clients
+			//  - client: verify server
+			peer_verify_mode(verify_mode_);
 
 			mbedtls_ssl_conf_rng(
 				ssl_config_.get(), mbedtls_ctr_drbg_random, &context.drbg_context());
@@ -217,8 +240,9 @@ namespace cppcoro::net::ssl
 		std::optional<ssl::private_key> key_{};
 		detail::mbedtls_ssl_context_ptr ssl_context_ = detail::mbedtls_ssl_context_ptr::make();
 		detail::mbedtls_ssl_config_ptr ssl_config_ = detail::mbedtls_ssl_config_ptr::make();
-		mbedtls_timing_delay_context timing_delay_context_{};
 		bool encrypted_ = false;
+        peer_verify_mode verify_mode_;
+        verify_flags verify_flags_{};
 		ssl_buf<> to_receive_{};
 		ssl_buf<true> to_send_{};
 
@@ -232,8 +256,9 @@ namespace cppcoro::net::ssl
 			, key_{ std::move(other.key_) }
 			, ssl_context_{ std::move(other.ssl_context_) }
 			, ssl_config_{ std::move(other.ssl_config_) }
-			, timing_delay_context_{ other.timing_delay_context_ }
 			, encrypted_{ other.encrypted_ }
+			, verify_mode_{ other.verify_mode_ }
+			, verify_flags_{ other.verify_flags_ }
 			, to_receive_{ other.to_receive_ }
 			, to_send_{ other.to_send_ }
 		{
@@ -258,13 +283,13 @@ namespace cppcoro::net::ssl
 				std::forward<decltype(pk)>(pk));
 		}
 
-        /** @brief Create ssl client socket (ipv4).
-         *
-         * @param io_service        The cppcoro io_service.
-         * @param certificate       [optional] The ssl certificate for mutual authentication.
-         * @param pk                [optional] The private key for @a certificate.
-         * @return                  The created socket.
-         */
+		/** @brief Create ssl client socket (ipv4).
+		 *
+		 * @param io_service        The cppcoro io_service.
+		 * @param certificate       [optional] The ssl certificate for mutual authentication.
+		 * @param pk                [optional] The private key for @a certificate.
+		 * @return                  The created socket.
+		 */
 		static socket create_client(
 			io_service& io_service,
 			std::optional<ssl::certificate> certificate = {},
@@ -273,10 +298,10 @@ namespace cppcoro::net::ssl
 			return create<mode::client>(io_service, std::move(certificate), std::move(pk));
 		}
 
-        /** @brief Create ssl server socket (ipv6).
-         *
-         * @copydetails net::ssl::socket::create_server()
-         */
+		/** @brief Create ssl server socket (ipv6).
+		 *
+		 * @copydetails net::ssl::socket::create_server()
+		 */
 		static socket create_server_v6(
 			io_service& io_service, ssl::certificate&& certificate, ssl::private_key&& pk)
 		{
@@ -286,10 +311,10 @@ namespace cppcoro::net::ssl
 				std::forward<decltype(pk)>(pk));
 		}
 
-        /** @brief Create ssl client socket (ipv6).
-         *
-         * @copydetails net::ssl::socket::create_client()
-         */
+		/** @brief Create ssl client socket (ipv6).
+		 *
+		 * @copydetails net::ssl::socket::create_client()
+		 */
 		static socket create_client_v6(
 			io_service& io_service,
 			std::optional<ssl::certificate> certificate = {},
@@ -308,10 +333,18 @@ namespace cppcoro::net::ssl
 		 * @param mode      The verification mode.
 		 * @see ssl::peer_verify_mode
 		 */
-		void peer_verify_mode(peer_verify_mode mode) noexcept
+		void set_peer_verify_mode(peer_verify_mode mode) noexcept
 		{
+            verify_mode_ = mode;
 			mbedtls_ssl_conf_authmode(ssl_config_.get(), int(mode));
 		}
+
+		void set_verify_flags(ssl::verify_flags flags) noexcept {
+            verify_flags_ = verify_flags_ | flags;
+		}
+        void unset_verify_flags(ssl::verify_flags flags) noexcept {
+            verify_flags_ = verify_flags_ & flags;
+        }
 
 		/** @brief Set host name.
 		 *
@@ -353,12 +386,34 @@ namespace cppcoro::net::ssl
 				{
 					co_await io_service_.schedule();  // reschedule ?
 				}
+				else if(result == MBEDTLS_ERR_SSL_PEER_VERIFY_FAILED)
+				{
+                    if (uint32_t flags = mbedtls_ssl_get_verify_result(ssl_context_.get()); flags != 0)
+                    {
+                        char vrfy_buf[2048];
+                        int res = mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf), "", flags);
+                        if (res < 0)
+                        {
+                            throw std::system_error{ res,
+                                                     ssl::error_category,
+                                                     "mbedtls_x509_crt_verify_info" };
+                        }
+                        else if (res)
+                        {
+                            throw std::system_error{ MBEDTLS_ERR_SSL_PEER_VERIFY_FAILED,
+                                                     ssl::error_category,
+                                                     std::string{ vrfy_buf, size_t(res - 1) } };
+                        }
+                    }
+				}
 				else
 				{
+                    spdlog::info("result: {:x}", result);
 					throw std::system_error(result, ssl::error_category, "mbedtls_ssl_handshake");
 				}
 			}
 			encrypted_ = true;
+
 		}
 
 		/** @brief Send data.
@@ -397,13 +452,13 @@ namespace cppcoro::net::ssl
 			}
 		}
 
-        /** @brief Receive data.
-         *
-         * @param data      Pointer to the data be filled with received data.
-         * @param size      Size of the data pointed by @a data.
-         * @return          Awaitable receive task.
-         * @co_return       The received size.
-         */
+		/** @brief Receive data.
+		 *
+		 * @param data      Pointer to the data be filled with received data.
+		 * @param size      Size of the data pointed by @a data.
+		 * @return          Awaitable receive task.
+		 * @co_return       The received size.
+		 */
 		task<size_t> recv(void* data, size_t size)
 		{
 			size_t offset = 0;

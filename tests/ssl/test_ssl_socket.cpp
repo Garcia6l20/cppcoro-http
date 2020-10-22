@@ -73,6 +73,7 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 
 	io_service io_service;
 	auto endpoint = *net::ipv4_endpoint::from_string("127.0.0.1:4242");
+	bool failure = false;
 	(void)sync_wait(when_all(
 		[&]() -> task<> {
 			auto _ = on_scope_exit([&] { io_service.stop(); });
@@ -99,6 +100,7 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 			catch (std::exception& error)
 			{
 				spdlog::error("server error: {}", error.what());
+				failure = true;
 			}
 			co_return;
 		}(),
@@ -109,6 +111,8 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 				auto client = net::ssl::socket::create_client(io_service);
 				co_await client.connect(endpoint);
 				spdlog::debug("connected");
+				client.set_peer_verify_mode(net::ssl::peer_verify_mode::required);
+				client.set_verify_flags(net::ssl::verify_flags::allow_untrusted);
 				co_await client.encrypt();
 				spdlog::debug("encrypted");
 				auto sent_bytes = co_await client.send(data.data(), data.size());
@@ -117,12 +121,14 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 			catch (std::exception& error)
 			{
 				spdlog::error("client error: {}", error.what());
+				failure = true;
 			}
 		}(),
 		[&]() -> task<> {
 			io_service.process_events();
 			co_return;
 		}()));
+	REQUIRE(!failure);
 }
 
 #include <future>
@@ -194,6 +200,8 @@ void multi_clients_test()
 						std::string data = fmt::format("hello ssl {} !!", client_num + 1);
 						co_await client.connect(endpoint);
 						spdlog::debug("connected {}", client_num + 1);
+						client.set_peer_verify_mode(net::ssl::peer_verify_mode::required);
+						client.set_verify_flags(net::ssl::verify_flags::allow_untrusted);
 						co_await client.encrypt();
 						spdlog::debug("encrypted {}", client_num + 1);
 						auto sent_bytes = co_await client.send(data.data(), data.size());
