@@ -7,6 +7,11 @@
 
 namespace cppcoro::detail {
 
+	/** @brief C-struct deleter.
+	 * 
+	 * @tparam T            The C-struct.
+	 * @tparam free_func    The free function to apply before delete.
+	 */
     template <typename T, auto free_func>
     struct c_deleter {
         void operator()(T *ptr) noexcept {
@@ -15,6 +20,12 @@ namespace cppcoro::detail {
         }
     };
 
+	/** @brief C-struct shared pointer.
+	 *
+	 * @tparam T            The C-struct.
+	 * @tparam init_func    The init function.
+	 * @tparam free_func    The free function.
+	 */
 	template <typename T, auto init_func, auto free_func>
 	struct c_shared_ptr : std::shared_ptr<T> {
 		template <typename...ArgsT>
@@ -28,6 +39,12 @@ namespace cppcoro::detail {
         }
 	};
 
+    /** @brief C-struct unique pointer.
+     *
+     * @tparam T            The C-struct.
+     * @tparam init_func    The init function.
+     * @tparam free_func    The free function.
+     */
     template <typename T, auto init_func, auto free_func>
     struct c_unique_ptr : std::unique_ptr<T, c_deleter<T, free_func>> {
         template <typename...ArgsT>
