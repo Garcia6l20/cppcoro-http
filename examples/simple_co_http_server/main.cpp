@@ -1,12 +1,12 @@
-
-#define CPPCORO_SSL_DEBUG
+//#define CPPCORO_SSL_DEBUG
 
 #include <cppcoro/http/http_chunk_provider.hpp>
 #include <cppcoro/http/route_controller.hpp>
+#include <cppcoro/http/session.hpp>
+#include <cppcoro/http/config.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
-#include <cppcoro/http/session.hpp>
 
 #include <lyra/arg.hpp>
 #include <lyra/cli_parser.hpp>
@@ -21,21 +21,26 @@ using namespace cppcoro;
 namespace fs = std::filesystem;
 namespace rng = std::ranges;
 
-template <typename ServerT>
-struct session : http::session<ServerT>
-{
-	using http::session<ServerT>::session;
-};
+using http_config = http::config<>;
+#ifdef CPPCORO_HTTP_MBEDTLS
+#include "cert.hpp"
+using https_config = http::config<http::session, ipv4_ssl_server_provider>;
+#endif
 
+template<typename>
+struct home_controller;
+
+template<typename ConfigT>
 using home_controller_def =
-	http::route_controller<R"(/?([^\s]*)?)", session, http::string_request, struct home_controller>;
+	http::route_controller<R"(/?([^\s]*)?)", ConfigT, http::string_request, home_controller>;
 
-struct home_controller : home_controller_def
+template<typename ConfigT>
+struct home_controller : home_controller_def<ConfigT>
 {
 	fs::path path_;
 
 	home_controller(io_service& service, std::string_view path)
-		: home_controller_def{ service }
+		: home_controller_def<ConfigT>{ service }
 		, path_{ path }
 	{
 	}
@@ -121,11 +126,13 @@ struct home_controller : home_controller_def
 
 	task<response_type> on_get(std::string_view path)
 	{
+		auto hello = this->session().template cookie<std::string>("Hello", "world");
+		spdlog::info("hello cookie: {}", hello);
 		auto status = http::status::HTTP_STATUS_OK;
-		spdlog::info("link_path: {}\n", path);
+		spdlog::info("link_path: {}", path);
 		if (fs::is_directory(path_ / path))
 		{
-			spdlog::info("get directory: {}\n", path);
+			spdlog::info("get directory: {}", path);
 			fmt::memory_buffer body;
 			try
 			{
@@ -152,12 +159,12 @@ struct home_controller : home_controller_def
 		}
 		else
 		{
-			spdlog::info("get file: {}\n", path);
+			spdlog::info("get file: {}", path);
 			try
 			{
 				co_return http::read_only_file_chunked_response{
 					http::status::HTTP_STATUS_OK,
-					http::read_only_file_chunk_provider{ service(), path_ / path }
+					http::read_only_file_chunk_provider{ this->service(), path_ / path }
 				};
 			}
 			catch (fs::filesystem_error& error)
@@ -179,14 +186,8 @@ struct home_controller : home_controller_def
 	}
 };
 
-using simple_co_server =
-    http::controller_server<tcp::ipv4_socket_provider, session, home_controller>;
-
-#ifdef CPPCORO_HTTP_MBEDTLS
-#include "cert.hpp"
-using simple_co_ssl_server =
-	http::controller_server<ipv4_ssl_server_provider, session, home_controller>;
-#endif
+template<typename ConfigT = http_config>
+using simple_co_server = http::controller_server<ConfigT, home_controller>;
 
 int main(int argc, char** argv)
 {
@@ -226,11 +227,15 @@ int main(int argc, char** argv)
 
 	std::clamp(thread_count, 1u, 256u);
 
+	std::string scheme = "http";
+#ifdef CPPCORO_HTTP_MBEDTLS
+	if (with_ssl) {
+        scheme = "https";
+	}
+#endif
+
 	spdlog::info(
-		"servicing {} at '{}' on {} threads\n",
-		path,
-		server_endpoint->to_string(),
-		thread_count + 1);
+		"servicing {} at {}://{} on {} threads", path, scheme, server_endpoint->to_string(), thread_count + 1);
 
 	std::vector<std::thread> tp{ thread_count };
 
@@ -243,14 +248,16 @@ int main(int argc, char** argv)
 #ifdef CPPCORO_HTTP_MBEDTLS
 			if (with_ssl)
 			{
-				simple_co_ssl_server server{ service, *server_endpoint, std::string_view{ path } };
+				simple_co_server<https_config> server{ service,
+													   *server_endpoint,
+													   std::string_view{ path } };
 				co_await server.serve();
 			}
 			else
 			{
 #endif
-                simple_co_server server{ service, *server_endpoint, std::string_view{ path } };
-                co_await server.serve();
+				simple_co_server server{ service, *server_endpoint, std::string_view{ path } };
+				co_await server.serve();
 #ifdef CPPCORO_HTTP_MBEDTLS
 			}
 #endif

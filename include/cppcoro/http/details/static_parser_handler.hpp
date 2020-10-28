@@ -120,6 +120,10 @@ namespace cppcoro::http::detail {
             return url_;
         }
 
+        auto &url() {
+            return url_;
+        }
+
         std::string to_string() const {
             fmt::memory_buffer out;
             std::string_view type;
@@ -184,7 +188,7 @@ namespace cppcoro::http::detail {
             auto &this_ = instance(parser);
 
             this_.state_ = status::on_headers;
-            this_.headers_[std::string{this_.header_field_}] = {data, data + len};
+            this_.headers_.emplace(std::string{this_.header_field_}, std::string{data, data + len});
             return 0;
         }
 
@@ -253,5 +257,8 @@ namespace cppcoro::http::detail {
         std::string url_;
         std::string_view body_;
         http::headers headers_;
+
+        template<bool _is_response, is_body BodyT>
+        friend struct abstract_message;
     };
 }

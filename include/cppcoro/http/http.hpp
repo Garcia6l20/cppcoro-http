@@ -28,7 +28,7 @@ namespace cppcoro::http {
     };
 
     using status = detail::http_status;
-    using headers = std::map<std::string, std::string>;
+    using headers = std::multimap<std::string, std::string>;
 
     namespace logging {
         static inline spdlog::level_t log_level = spdlog::level::warn;

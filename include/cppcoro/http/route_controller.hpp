@@ -49,7 +49,7 @@ namespace cppcoro::http
 			virtual ~abstract_route_controller() = default;
 
 			virtual task<detail::base_response&> process() = 0;
-			virtual http::detail::base_request* _init_request(std::string_view url) = 0;
+			virtual http::detail::base_request* _init_request(http::request_parser& url) = 0;
 			virtual bool match(std::string_view url) = 0;
 
 			io_service& service_;
@@ -73,9 +73,16 @@ namespace cppcoro::http
 		};
 	}  // namespace detail
 
-	template<ctll::fixed_string route, typename SessionT, typename RequestT, typename Derived>
+	template<
+		ctll::fixed_string route,
+		http::is_config ConfigT,
+		typename RequestT,
+		template <typename>
+		typename Derived>
 	class route_controller : public detail::abstract_route_controller
 	{
+		using derived_type = Derived<ConfigT>;
+		using session_type = typename ConfigT::session_type;
 		using request_type = RequestT;
 		using builder_type = ctre::regex_builder<route>;
 		static constexpr inline auto match_ = ctre::regex_match_t<typename builder_type::type>();
@@ -83,7 +90,7 @@ namespace cppcoro::http
 
 		std::optional<request_type> request_;
 
-		auto& self() { return static_cast<Derived&>(*this); }
+		auto& self() { return static_cast<derived_type&>(*this); }
 
 		using handler_type =
 			std::function<cppcoro::task<detail::base_response&>(route_controller&)>;
@@ -147,44 +154,43 @@ namespace cppcoro::http
 			return bool(match_result_);
 		}
 
-		http::detail::base_request* _init_request(std::string_view url) final
+		http::detail::base_request* _init_request(http::request_parser& parser) final
 		{
-			request_.emplace(make_request());
-			request_->path = url;
+			request_.emplace(make_request(parser));
 			assert(match(request_->path));  // reload results
-			if constexpr (detail::has_init_request_handler<Derived>)
+			if constexpr (detail::has_init_request_handler<derived_type>)
 			{
-				using traits = detail::function_traits<decltype(&Derived::init_request)>;
+				using traits = detail::function_traits<decltype(&derived_type::init_request)>;
 				using data_type = typename traits::template parameters_tuple<
 					detail::function_detail::parameters_tuple_disable<request_type>>::tuple_type;
 				data_type data;
 				detail::load_data(match_result_, data);
 				std::apply(
-					&Derived::init_request,
+					&derived_type::init_request,
 					std::tuple_cat(
-						std::make_tuple(static_cast<Derived*>(this)),
+						std::make_tuple(static_cast<derived_type*>(this)),
 						data,
 						std::tuple<request_type&>(*request_)));
 			}
 			return &*request_;
 		}
 
-		auto make_request()
+		auto make_request(http::request_parser &parser)
 		{
 			using request_body = typename request_type::body_type;
 			if constexpr (std::constructible_from<request_body, io_service&>)
 			{
-				return request_type{ http::method::unknown, "", request_body{ service_ } };
+				return request_type{ parser, request_body{ service_ } };
 			}
 			else
 			{
-				return request_type{ http::method::unknown, "", request_body{} };
+				return request_type{ parser, request_body{} };
 			}
 		}
 
 	protected:
 		auto& request() { return *request_; }
-		auto& session() { return *static_cast<SessionT*>(session_); }
+		auto& session() { return *static_cast<session_type *>(session_); }
 		auto& service() { return service_; }
 
 	public:
@@ -197,9 +203,9 @@ namespace cppcoro::http
 			: detail::abstract_route_controller{ service }
 		{
 #define __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(__method)                  \
-	if constexpr (detail::is_##__method##_controller<Derived>)             \
+	if constexpr (detail::is_##__method##_controller<derived_type>)             \
 	{                                                                      \
-		register_handler<http::method::__method>(&Derived::on_##__method); \
+		register_handler<http::method::__method>(&derived_type::on_##__method); \
 	}
 			__CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(post)
 			__CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(get)
@@ -223,30 +229,31 @@ namespace cppcoro::http
 		}
 	};
 
-	template<net::socket_provider SocketProviderT, typename SessionType, typename... ControllersT>
+	template<
+		http::is_config ConfigT,
+		template <typename>
+		typename... ControllersT>
 	struct controller_server
 		: http::request_server<
-			  SocketProviderT,
-			  SessionType,
-			  controller_server<SocketProviderT, SessionType, ControllersT...>>
+              ConfigT,
+			  controller_server<ConfigT, ControllersT...>>
 	{
 		using processor_type = http::request_server<
-            SocketProviderT,
-			SessionType,
-			controller_server<SocketProviderT, SessionType, ControllersT...>>;
+			ConfigT,
+			controller_server<ConfigT, ControllersT...>>;
 
-		using session_type = SessionType;
+		using session_type = typename ConfigT::session_type;
 
 		template<typename... ArgsT>
 		controller_server(
 			io_service& service, const net::ip_endpoint& endpoint, const ArgsT&... args) noexcept
 			: processor_type{ service, endpoint }
-			, controllers_{ std::make_unique<ControllersT>(ControllersT{ this->ios_, args... })... }
+			, controllers_{ std::make_unique<ControllersT<ConfigT>>(ControllersT<ConfigT>{ this->ios_, args... })... }
 		{
 		}
 
 		http::detail::base_request*
-		prepare(const http::request_parser& parser, session_type& session)
+		prepare(http::request_parser& parser, session_type& session)
 		{
 			next_proc_ = nullptr;
 			for (auto& controller : controllers_)
@@ -255,7 +262,7 @@ namespace cppcoro::http
 				{
 					controller->session_ = &session;
 					next_proc_ = controller.get();
-					return controller->_init_request(parser.url());
+					return controller->_init_request(parser);
 				}
 			}
 			return nullptr;

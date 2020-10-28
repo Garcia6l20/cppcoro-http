@@ -91,6 +91,7 @@ namespace cppcoro::http {
             using base_type = std::conditional_t<_is_response, base_response, base_request>;
             static constexpr bool is_response = _is_response;
             static constexpr bool is_request = !_is_response;
+			using parser_type = http::detail::static_parser_handler<is_request>;
 
             using base_type::base_type;
 
@@ -99,6 +100,16 @@ namespace cppcoro::http {
 
             std::optional<async_generator<std::string_view>> chunk_generator_;
             std::optional<async_generator<std::string_view>::iterator> chunk_generator_it_;
+
+            abstract_message(parser_type &parser, BodyT &&body = {}) requires (is_response)
+                : base_response{parser.status_code(), std::move(parser.headers_)}
+                , body_access{std::forward<BodyT>(body)} {
+            }
+
+            abstract_message(parser_type &parser, BodyT &&body = {}) requires (is_request)
+                : base_request{parser.method(), std::move(parser.url()), std::move(parser.headers_)}
+                , body_access{std::forward<BodyT>(body)} {
+            }
 
             abstract_message(http::status status, BodyT &&body = {}, http::headers &&headers = {}) requires (is_response)
                 : base_response{status, std::forward<http::headers>(headers)}
@@ -156,9 +167,9 @@ namespace cppcoro::http {
                     output += fmt::format("{}: {}\r\n", field, value);
                 };
                 if constexpr (ro_basic_body<BodyT>) {
-                    this->headers["Content-Length"] = std::to_string(this->body_access.size());
+                    this->headers.emplace("Content-Length", std::to_string(this->body_access.size()));
                 } else if constexpr (ro_chunked_body<BodyT>) {
-                    this->headers["Transfer-Encoding"] = "chunked";
+                    this->headers.emplace("Transfer-Encoding", "chunked");
                 }
                 for (auto &[field, value] : this->headers) {
                     write_header(field, value);

@@ -15,18 +15,10 @@ namespace cppcoro
 {
 	namespace net
 	{
-		// clang-format off
-        template <typename T>
-        concept socket_provider = requires(T v) {
-            { v.create_listening_sock(std::declval<io_service&>()) } -> net::is_socket;
-            { v.create_connection_sock(std::declval<io_service&>()) } -> net::is_socket;
-        };
-		// clang-format on
-
-		template<socket_provider SocketProviderT>
+		template<is_socket_provider SocketProviderT>
 		struct socket_consumer
 		{
-			static constexpr socket_provider auto socket_provider = SocketProviderT{};
+			static constexpr is_socket_provider auto socket_provider = SocketProviderT{};
 			using listening_socket_type =
 				decltype(socket_provider.create_listening_sock(std::declval<io_service&>()));
 			using connection_socket_type =
@@ -113,7 +105,7 @@ namespace cppcoro
 			}
 		};
 
-		template<net::socket_provider SocketProviderT = ipv4_socket_provider>
+		template<net::is_socket_provider SocketProviderT = ipv4_socket_provider>
 		class server : net::socket_consumer<SocketProviderT>
 		{
 		public:
@@ -181,7 +173,7 @@ namespace cppcoro
 			cancellation_source cs_;
 		};
 
-		template<net::socket_provider SocketProviderT = ipv4_socket_provider>
+		template<net::is_socket_provider SocketProviderT = ipv4_socket_provider>
 		class client : net::socket_consumer<SocketProviderT>
 		{
 		public:

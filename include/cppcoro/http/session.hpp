@@ -3,14 +3,16 @@
  */
 #pragma once
 
-#include <cppcoro/net/concepts.hpp>
+#include <cppcoro/http/concepts.hpp>
 #include <nlohmann/json.hpp>
 
+#include <ranges>
+
 namespace cppcoro::http {
-	template <typename HttpServerT>
+	template <is_config ConfigT>
 	class session {
 	public:
-		session(HttpServerT &server) noexcept :
+		session(http::server<ConfigT> &server) noexcept :
 		    server_{server} {
 		}
 
@@ -20,25 +22,37 @@ namespace cppcoro::http {
 		}
 
 		template<typename T>
-		T cookie(std::string_view key) {
+		T cookie(std::string_view key, std::optional<T> default_value = {}) {
+			if (default_value and not cookies_.contains(key)) {
+				cookies_[key.data()] = std::move(*default_value);
+			}
 			return cookies_[key.data()].get<T>();
 		}
 
-	private:
-		friend HttpServerT;
-
-		void set_cookies(std::string_view raw_cookies) {
+		void extract_cookies(const http::headers& headers) {
 			using namespace nlohmann;
-            cookies_ = json::parse(raw_cookies);
+			for (auto &[_, raw_cookie] : headers | std::views::filter([] (auto const& elem) {
+											 return elem.first == "Cookie";
+										 })) {
+				auto rng = std::views::split(raw_cookie, '=') | std::views::transform([](auto &&rng) {
+							   return std::string_view(&*rng.begin(), std::ranges::distance(rng));
+						   });
+				std::string k{*next(begin(rng), 0)};
+                std::string v{*next(begin(rng), 1)};
+//                std::string v = *next(begin(rng), 1);
+				cookies_[k] = v;
+			}
 		}
 
-        std::string get_cookies() {
+        void load_cookies(http::headers& headers) {
             using namespace nlohmann;
-			return cookies_.dump();
+			for (auto &[k, v] : cookies_.items()) {
+				headers.emplace("Set-Cookie", fmt::format(FMT_STRING("{}={}"), k, v));
+			}
         }
 
         nlohmann::json cookies_{};
 
-		HttpServerT& server_;
+        http::server<ConfigT>& server_;
 	};
 }

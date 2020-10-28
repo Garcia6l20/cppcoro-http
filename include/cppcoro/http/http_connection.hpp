@@ -18,15 +18,16 @@
 
 namespace cppcoro::http {
 
-	template <net::socket_provider>
+	template <is_config>
     class client;
 
-    template <net::socket_provider>
+    template <is_config>
     class server;
 
-    template<typename ParentT, net::is_socket SocketT, typename ResponseT = string_response, typename RequestT = string_request>
-    class connection : public tcp::connection<SocketT>
+    template<typename ParentT, http::is_config ConfigT, typename ResponseT = string_response, typename RequestT = string_request>
+    class connection : public tcp::connection<typename ConfigT::connection_socket_type>
     {
+		using socket_type = typename ConfigT::connection_socket_type;
         std::shared_ptr<spdlog::logger> logger_ = [this]() mutable {
             auto logger = logging::get_logger(*this);
             logger->flush_on(spdlog::level::debug);
@@ -58,7 +59,7 @@ namespace cppcoro::http {
         using parser_type = std::conditional_t<is_client(), response_parser, request_parser>;
 
         connection(connection &&other) noexcept
-            : tcp::connection<SocketT>{std::move(other)}, parent_{other.parent_}, /*input_{std::move(other.input_)},*/
+            : tcp::connection<socket_type>{std::move(other)}, parent_{other.parent_}, /*input_{std::move(other.input_)},*/
               buffer_{std::move(other.buffer_)},
               logger_{std::move(other.logger_)} {
         }
@@ -78,20 +79,20 @@ namespace cppcoro::http {
 
 
         template <typename SockProviderT>
-        explicit connection(server<SockProviderT> &server, tcp::connection<SocketT> connection)
-            : tcp::connection<SocketT>(std::move(connection)), parent_{server}, /*input_{std::make_unique<request>()},*/
+        explicit connection(server<SockProviderT> &server, tcp::connection<socket_type> connection)
+            : tcp::connection<socket_type>(std::move(connection)), parent_{server}, /*input_{std::make_unique<request>()},*/
               buffer_(2048, 0) {
             logger_->info("new sever connection");
         }
 
         template <typename SockProviderT>
-        explicit connection(client<SockProviderT> &client, tcp::connection<SocketT> connection)
-            : tcp::connection<SocketT>(std::move(connection)), parent_{client}, /*input_{std::make_unique<response>()},*/
+        explicit connection(client<SockProviderT> &client, tcp::connection<socket_type> connection)
+            : tcp::connection<socket_type>(std::move(connection)), parent_{client}, /*input_{std::make_unique<response>()},*/
               buffer_(2048, 0) {
             logger_->info("new client connection");
         }
 
-        task<receive_type *> next(std::function<base_receive_type &(const parser_type &)> init) {
+        task<receive_type *> next(std::function<base_receive_type &(parser_type &)> init) {
             base_receive_type *result = nullptr;
             parser_type parser;
             auto init_result = [&] {

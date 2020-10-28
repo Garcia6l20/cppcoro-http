@@ -3,6 +3,7 @@
  */
 #pragma once
 
+#include <cppcoro/http/concepts.hpp>
 #include <cppcoro/http/http_connection.hpp>
 #include <cppcoro/net/tcp.hpp>
 #include <cppcoro/operation_cancelled.hpp>
@@ -14,17 +15,17 @@
 
 namespace cppcoro::http
 {
-	template<net::socket_provider SocketProviderT = tcp::ipv4_socket_provider>
-	class server : protected tcp::server<SocketProviderT>
+	template<is_config ConfigT>
+	class server : protected tcp::server<typename ConfigT::socket_provider>
 	{
 	public:
-		using base = tcp::server<SocketProviderT>;
+        using connection_type = connection<
+            server, ConfigT>;
+
+		using base = tcp::server<typename ConfigT::socket_provider>;
 		using base::server;
 		using base::service;
 		using base::stop;
-		using connection_type = connection<
-			server,
-			typename net::socket_consumer<SocketProviderT>::connection_socket_type>;
 
 		task<connection_type> listen()
 		{

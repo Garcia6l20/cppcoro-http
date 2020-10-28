@@ -10,6 +10,7 @@
 namespace cppcoro::net
 {
 	// clang-format off
+
 	template<typename T>
 	concept is_socket = requires(T v)
 	{
@@ -28,6 +29,12 @@ namespace cppcoro::net
         { v.accept(std::declval<T&>(), cancellation_token{}) } -> awaitable;
 //        { v.recv(std::declval<void*>(), size_t{}, cancellation_token{}) } -> awaitable<size_t>;
 //        { v.send(std::declval<const void*>(), size_t{}, cancellation_token{}) } -> awaitable<size_t>;
+    };
+
+    template <typename T>
+    concept is_socket_provider = requires(T v) {
+        { v.create_listening_sock(std::declval<io_service&>()) } -> net::is_cancelable_socket;
+        { v.create_connection_sock(std::declval<io_service&>()) } -> net::is_cancelable_socket;
     };
 	// clang-format on
 
