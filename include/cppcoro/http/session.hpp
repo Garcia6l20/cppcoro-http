@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cppcoro/http/concepts.hpp>
+#include <cppcoro/http/config.hpp>
 #include <nlohmann/json.hpp>
 
 #include <ranges>
@@ -55,4 +56,7 @@ namespace cppcoro::http {
 
         http::server<ConfigT>& server_;
 	};
+
+	template <cppcoro::net::is_socket_provider SocketProviderT = tcp::ipv4_socket_provider>
+    using default_session_config = config<http::session, SocketProviderT>;
 }

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cppcoro/cancellation_token.hpp>
+#include <cppcoro/io_service.hpp>
 #include <cppcoro/concepts.hpp>
 #include <cppcoro/net/ip_endpoint.hpp>
 
@@ -36,9 +37,13 @@ namespace cppcoro::net
     };
 
     template <typename T>
-    concept is_socket_provider = requires(T v) {
-        { v.create_listening_sock(std::declval<io_service&>()) } -> net::is_cancelable_socket;
+    concept is_connection_socket_provider = requires(T v) {
         { v.create_connection_sock(std::declval<io_service&>()) } -> net::is_cancelable_socket;
+    };
+
+    template <typename T>
+    concept is_socket_provider = is_connection_socket_provider<T> and requires(T v) {
+        { v.create_listening_sock(std::declval<io_service&>()) } -> net::is_cancelable_socket;
     };
 	// clang-format on
 

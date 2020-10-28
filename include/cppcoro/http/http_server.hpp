@@ -29,7 +29,6 @@ namespace cppcoro::http
 
 		task<connection_type> listen()
 		{
-			auto conn_generator = this->accept();
 			while (!this->cs_.is_cancellation_requested())
 			{
 				spdlog::debug("listening for new connection on {}", this->socket_.local_endpoint());

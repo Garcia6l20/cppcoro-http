@@ -22,6 +22,8 @@ basic_test(test_server.cpp)
 basic_test(test_chunked.cpp)
 basic_test(test_uri.cpp)
 
+add_subdirectory(web_socket)
+
 if(CPPCORO_HTTP_MBEDTLS)
   add_subdirectory(ssl)
 endif()

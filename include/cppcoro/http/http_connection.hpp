@@ -3,6 +3,7 @@
 #include <cppcoro/http/http.hpp>
 #include <cppcoro/http/http_request.hpp>
 #include <cppcoro/http/http_response.hpp>
+#include <cppcoro/http/concepts.hpp>
 #include <cppcoro/net/tcp.hpp>
 #include <cppcoro/detail/is_specialization.hpp>
 #include <cppcoro/task.hpp>
@@ -18,7 +19,7 @@
 
 namespace cppcoro::http {
 
-	template <is_config>
+	template <net::is_connection_socket_provider>
     class client;
 
     template <is_config>

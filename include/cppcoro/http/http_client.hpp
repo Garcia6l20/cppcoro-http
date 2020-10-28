@@ -16,7 +16,7 @@
 
 namespace cppcoro::http
 {
-	template<net::socket_provider SocketProviderT = tcp::ipv4_socket_provider>
+	template<net::is_connection_socket_provider SocketProviderT = tcp::ipv4_socket_provider>
 	class client : protected tcp::client<SocketProviderT>
 	{
 		using base = tcp::client<SocketProviderT>;

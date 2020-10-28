@@ -4,6 +4,7 @@
 
 #include <cppcoro/async_scope.hpp>
 #include <cppcoro/http/http_client.hpp>
+#include <cppcoro/http/session.hpp>
 #include <cppcoro/io_service.hpp>
 #include <cppcoro/net/tcp.hpp>
 #include <cppcoro/on_scope_exit.hpp>

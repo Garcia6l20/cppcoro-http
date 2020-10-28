@@ -23,10 +23,11 @@ namespace cppcoro::http
 	}  // namespace detail
 
 	template<
-		template<typename> typename SessionT = http::session,
+		template<typename> typename SessionT,
 		cppcoro::net::is_socket_provider SocketProviderT = tcp::ipv4_socket_provider>
 	struct config : detail::base_config<SocketProviderT>
 	{
 		using session_type = SessionT<config>;
 	};
+
 }  // namespace cppcoro::http

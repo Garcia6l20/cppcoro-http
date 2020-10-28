@@ -29,6 +29,14 @@ namespace cppcoro::http {
 
             base_message &operator=(base_message &&other) = default;
 
+			std::optional<std::reference_wrapper<std::string>> header(const std::string &key) noexcept {
+				static std::string empty{};
+				if (auto it = headers.find(key); it != headers.end()) {
+					return it->second;
+				}
+				return {};
+			}
+
             http::headers headers;
 
             virtual bool is_chunked() = 0;
@@ -120,6 +128,13 @@ namespace cppcoro::http {
                 : base_request{method, std::forward<std::string>(path), std::forward<http::headers>(headers)}
                 , body_access{std::forward<BodyT>(body)} {
             }
+
+			auto &operator=(parser_type &parser) noexcept requires (is_request) {
+				this->method = parser.method();
+                this->path = std::move(parser.url());
+                this->headers = std::move(parser.headers_);
+				return *this;
+			}
 
 //            explicit abstract_message(base_type &&base) noexcept : base_type(std::move(base))  {}
 //            abstract_message& operator=(base_type &&base) noexcept {

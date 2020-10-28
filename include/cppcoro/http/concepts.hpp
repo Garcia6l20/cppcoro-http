@@ -4,6 +4,7 @@
 #pragma once
 
 #include <type_traits>
+#include <cppcoro/http/http.hpp>
 #include <cppcoro/net/concepts.hpp>
 
 namespace cppcoro::http {
