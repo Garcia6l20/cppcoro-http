@@ -103,6 +103,15 @@ auto do_serve = [&]() -> task<> {
     make -j
     ```
 
+#### SSL support
+
+```bash
+mkdir build && cd build
+cmake -DBUILD_EXAMPLES=ON ..
+make -j
+./examples/simple_co_http_server/bin/simple_co_http_server --ssl 127.0.0.1:4242 .
+```
+
 ### Windows
 
 > requirements:
@@ -120,5 +129,5 @@ cmake -DCPPCORO_DEVEL=ON ..
 
 - [x] chunked transfers (server-side)
 - [ ] chunked transfers (client-side)
-- [ ] ssl support ([mbed-tls](https://github.com/ARMmbed/mbedtls))
+- [x] ssl support ([mbed-tls](https://github.com/ARMmbed/mbedtls))
 - [ ] ...
