@@ -18,6 +18,14 @@ namespace cppcoro::http {
 		using base::base;
         using session_type = SessionT;
 
+		SessionT create_session() noexcept {
+			if constexpr (requires (SessionT) { SessionT{*this}; }) {
+				return SessionT{*this};
+			} else {
+                return SessionT{};
+			}
+		}
+
         task<> serve() {
             async_scope scope;
             std::exception_ptr exception_ptr;
@@ -25,7 +33,7 @@ namespace cppcoro::http {
                 while (true) {
                     auto conn = co_await this->listen();
                     scope.spawn([](base *srv, typename base::connection_type conn) mutable -> task<> {
-                        session_type session{};
+                        session_type session = srv->create_session();
                         http::string_request default_request;
                         auto init_request = [&](const http::request_parser &parser) -> http::detail::base_request& {
                             auto *request = static_cast<ProcessorT*>(srv)->prepare(parser, session);

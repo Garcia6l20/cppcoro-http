@@ -6,6 +6,7 @@
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
+#include <cppcoro/http/session.hpp>
 
 #include <lyra/arg.hpp>
 #include <lyra/cli_parser.hpp>
@@ -20,8 +21,10 @@ using namespace cppcoro;
 namespace fs = std::filesystem;
 namespace rng = std::ranges;
 
-struct session
+template <typename ServerT>
+struct session : http::session<ServerT>
 {
+	using http::session<ServerT>::session;
 };
 
 using home_controller_def =

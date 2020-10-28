@@ -59,6 +59,7 @@ conan_cmake_run(
     fmt/7.0.1
     spdlog/1.7.0
     ctre/2.8.2
+    nlohmann_json/3.9.1
   BASIC_SETUP CMAKE_TARGETS
   BUILD outdated)
 
@@ -93,7 +94,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   http_parser::http_parser
   CONAN_PKG::ctre
   CONAN_PKG::fmt
-  CONAN_PKG::spdlog)
+  CONAN_PKG::spdlog
+  CONAN_PKG::nlohmann_json)
 target_precompile_headers(${PROJECT_NAME} INTERFACE
   <ctre/functions.hpp>
   <ctll/fixed_string.hpp>

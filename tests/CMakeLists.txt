@@ -20,6 +20,7 @@ basic_test(test_requests.cpp)
 basic_test(test_route_controller.cpp)
 basic_test(test_server.cpp)
 basic_test(test_chunked.cpp)
+basic_test(test_uri.cpp)
 
 if(CPPCORO_HTTP_MBEDTLS)
   add_subdirectory(ssl)
