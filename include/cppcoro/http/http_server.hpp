@@ -8,32 +8,38 @@
 #include <cppcoro/operation_cancelled.hpp>
 #include <cppcoro/task.hpp>
 
+#include <iostream>
 #include <utility>
 #include <vector>
-#include <iostream>
 
-namespace cppcoro::http {
+namespace cppcoro::http
+{
+	template<net::socket_provider SocketProviderT = tcp::ipv4_socket_provider>
+	class server : protected tcp::server<SocketProviderT>
+	{
+	public:
+		using base = tcp::server<SocketProviderT>;
+		using base::server;
+		using base::service;
+		using base::stop;
+		using connection_type = connection<
+			server,
+			typename net::socket_consumer<SocketProviderT>::connection_socket_type>;
 
-    class server : protected tcp::server
-    {
-    public:
-        using tcp::server::server;
-        using tcp::server::stop;
-        using tcp::server::service;
-        using connection_type = connection<server>;
+		task<connection_type> listen()
+		{
+			auto conn_generator = this->accept();
+			while (!this->cs_.is_cancellation_requested())
+			{
+				spdlog::debug("listening for new connection on {}", this->socket_.local_endpoint());
+				connection_type conn{ *this, std::move(co_await this->accept()) };
+				spdlog::debug("{} incoming connection: {}", conn.to_string(), conn.peer_address());
+				co_return conn;
+			}
+			throw operation_cancelled{};
+		}
 
-        task<connection_type> listen() {
-            auto conn_generator = accept();
-            while (!cs_.is_cancellation_requested()) {
-                spdlog::debug("listening for new connection on {}", socket_.local_endpoint());
-                connection_type conn{*this, std::move(co_await accept())};
-                spdlog::debug("{} incoming connection: {}", conn.to_string(), conn.peer_address());
-                co_return conn;
-            }
-            throw operation_cancelled{};
-        }
-
-    private:
-        cppcoro::cancellation_source cancellation_source_;
-    };
-} // namespace cpporo::http
+	private:
+		cppcoro::cancellation_source cancellation_source_;
+	};
+}  // namespace cppcoro::http

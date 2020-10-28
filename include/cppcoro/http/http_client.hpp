@@ -5,30 +5,37 @@
 
 #include <cppcoro/http/http_connection.hpp>
 #include <cppcoro/http/http_response.hpp>
+#include <cppcoro/net/concepts.hpp>
 #include <cppcoro/net/tcp.hpp>
 #include <cppcoro/operation_cancelled.hpp>
 #include <cppcoro/task.hpp>
 
+#include <iostream>
 #include <utility>
 #include <vector>
-#include <iostream>
 
-namespace cppcoro::http {
+namespace cppcoro::http
+{
+	template<net::socket_provider SocketProviderT = tcp::ipv4_socket_provider>
+	class client : protected tcp::client<SocketProviderT>
+	{
+		using base = tcp::client<SocketProviderT>;
 
-    class client : protected tcp::client
-    {
-    public:
-        using tcp::client::client;
-        using tcp::client::stop;
-        using tcp::client::service;
-        using connection_type = connection<client>;
+	public:
+		using base::client;
+		using base::service;
+		using base::stop;
+		using connection_type = connection<
+			client,
+			typename net::socket_consumer<SocketProviderT>::connection_socket_type>;
 
-        task<connection_type> connect(net::ip_endpoint const &endpoint) {
-            connection_type conn{*this, std::move(co_await tcp::client::connect(endpoint))};
-            co_return conn;
-        }
+		task<connection_type> connect(net::ip_endpoint const& endpoint)
+		{
+			connection_type conn{ *this, std::move(co_await base::connect(endpoint)) };
+			co_return conn;
+		}
 
-    private:
-        cppcoro::cancellation_source cancellation_source_;
-    };
-} // namespace cpporo::http
+	private:
+		cppcoro::cancellation_source cancellation_source_;
+	};
+}  // namespace cppcoro::http

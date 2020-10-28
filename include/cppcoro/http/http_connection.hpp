@@ -4,6 +4,7 @@
 #include <cppcoro/http/http_request.hpp>
 #include <cppcoro/http/http_response.hpp>
 #include <cppcoro/net/tcp.hpp>
+#include <cppcoro/detail/is_specialization.hpp>
 #include <cppcoro/task.hpp>
 #include <cppcoro/when_all.hpp>
 
@@ -17,12 +18,14 @@
 
 namespace cppcoro::http {
 
+	template <net::socket_provider>
     class client;
 
+    template <net::socket_provider>
     class server;
 
-    template<typename ParentT, typename ResponseT = string_response, typename RequestT = string_request>
-    class connection : public tcp::connection
+    template<typename ParentT, net::is_socket SocketT, typename ResponseT = string_response, typename RequestT = string_request>
+    class connection : public tcp::connection<SocketT>
     {
         std::shared_ptr<spdlog::logger> logger_ = [this]() mutable {
             auto logger = logging::get_logger(*this);
@@ -35,11 +38,11 @@ namespace cppcoro::http {
         }
 
         std::string to_string() const {
-            return fmt::format("connection::{}", peer_address());
+            return fmt::format("connection::{}", this->peer_address());
         }
 
         static constexpr bool is_server() {
-            if constexpr (std::is_same_v<ParentT, server>) {
+            if constexpr (cppcoro::detail::specialization_of<ParentT, server>) {
                 return true;
             } else return false;
         }
@@ -55,7 +58,7 @@ namespace cppcoro::http {
         using parser_type = std::conditional_t<is_client(), response_parser, request_parser>;
 
         connection(connection &&other) noexcept
-            : tcp::connection{std::move(other)}, parent_{other.parent_}, /*input_{std::move(other.input_)},*/
+            : tcp::connection<SocketT>{std::move(other)}, parent_{other.parent_}, /*input_{std::move(other.input_)},*/
               buffer_{std::move(other.buffer_)},
               logger_{std::move(other.logger_)} {
         }
@@ -73,14 +76,17 @@ namespace cppcoro::http {
 
         connection &operator=(const connection &other) = delete;
 
-        explicit connection(server &server, tcp::connection connection)
-            : tcp::connection(std::move(connection)), parent_{server}, /*input_{std::make_unique<request>()},*/
+
+        template <typename SockProviderT>
+        explicit connection(server<SockProviderT> &server, tcp::connection<SocketT> connection)
+            : tcp::connection<SocketT>(std::move(connection)), parent_{server}, /*input_{std::make_unique<request>()},*/
               buffer_(2048, 0) {
             logger_->info("new sever connection");
         }
 
-        explicit connection(client &client, tcp::connection connection)
-            : tcp::connection(std::move(connection)), parent_{client}, /*input_{std::make_unique<response>()},*/
+        template <typename SockProviderT>
+        explicit connection(client<SockProviderT> &client, tcp::connection<SocketT> connection)
+            : tcp::connection<SocketT>(std::move(connection)), parent_{client}, /*input_{std::make_unique<response>()},*/
               buffer_(2048, 0) {
             logger_->info("new client connection");
         }
@@ -98,7 +104,7 @@ namespace cppcoro::http {
                 co_await parent_.service().schedule();
                 logger_->debug("waiting for incoming message...");
                 //std::fill(begin(buffer_), end(buffer_), '\0');
-                auto ret = co_await sock_.recv(buffer_.data(), buffer_.size(), ct_);
+                auto ret = co_await this->sock_.recv(buffer_.data(), buffer_.size(), this->ct_);
                 logger_->debug("got something: {}", ret);
                 bool done = ret <= 0;
                 if (!done) {
@@ -143,31 +149,31 @@ namespace cppcoro::http {
             try {
                 if (to_send.is_chunked()) {
                     std::string_view body;
-                    auto size = co_await sock_.send(header.data(), header.size(), ct_);
+                    auto size = co_await this->sock_.send(header.data(), header.size(), this->ct_);
                     assert(size == header.size());
                     body = co_await to_send.read_body();
                     while (!body.empty()) {
                         auto size_str = fmt::format("{:x}\r\n", body.size());
-                        co_await sock_.send(size_str.data(), size_str.size(), ct_);
+                        co_await this->sock_.send(size_str.data(), size_str.size(), this->ct_);
                         logger_->debug("chunked body: {}", body);
-                        size = co_await sock_.send(body.data(), body.size(), ct_);
+                        size = co_await this->sock_.send(body.data(), body.size(), this->ct_);
                         if(size != body.size()) {
                             logger_->error("body not sent ({}/{})", size, body.size());
                         } else {
-                            co_await sock_.send("\r\n", 2, ct_);
+                            co_await this->sock_.send("\r\n", 2, this->ct_);
                         }
                         body = co_await to_send.read_body();
                     }
                     auto size_str = fmt::format("{}\r\n\r\n", 0);
-                    co_await sock_.send(size_str.data(), size_str.size(), ct_);
+                    co_await this->sock_.send(size_str.data(), size_str.size(), this->ct_);
 
                 } else {
                     auto body = co_await to_send.read_body();
-                    auto size = co_await sock_.send(header.data(), header.size(), ct_);
+                    auto size = co_await this->sock_.send(header.data(), header.size(), this->ct_);
                     assert(size == header.size());
                     if (!body.empty()) {
                         logger_->debug("body: {}", body);
-                        auto size = co_await sock_.send(body.data(), body.size(), ct_);
+                        auto size = co_await this->sock_.send(body.data(), body.size(), this->ct_);
                         assert(size == body.size());
                     }
                 }
@@ -186,10 +192,10 @@ namespace cppcoro::http {
                         error_message.status = http::status::HTTP_STATUS_NOT_FOUND;
                     }
                     header = error_message.build_header();
-                    auto size = co_await sock_.send(header.data(), header.size(), ct_);
+                    auto size = co_await this->sock_.send(header.data(), header.size(), this->ct_);
                     assert(size == header.size());
                     auto body = co_await to_send.read_body();
-                    size = co_await sock_.send(body.data(), body.size(), ct_);
+                    size = co_await this->sock_.send(body.data(), body.size(), this->ct_);
                     assert(size == body.size());
                 } else {
                     throw;

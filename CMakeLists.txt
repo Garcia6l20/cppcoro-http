@@ -18,21 +18,19 @@ include(FetchContent)
 #
 # cppcoro
 #
-option(CPPCORO_DEVEL "Fetch cppcoro for development" OFF)
-if(CPPCORO_DEVEL)
-  FetchContent_Declare(_fetch_cppcoro
-    GIT_REPOSITORY https://github.com/Garcia6l20/cppcoro
-    GIT_TAG io_ring
-    )
-  FetchContent_MakeAvailable(_fetch_cppcoro)
+if(CPPCORO_PATH)
+  add_subdirectory(${CPPCORO_PATH} cppcoro)
   add_library(cppcoro::cppcoro ALIAS cppcoro)
 else()
   find_package(cppcoro REQUIRED)
 endif()
 
+add_library(cppcoro_http_options INTERFACE)
+
 option(CPPCORO_HTTP_MBEDTLS "Enable SSL support with mbedTLS" OFF)
 if(CPPCORO_HTTP_MBEDTLS)
   find_package(mbedtls REQUIRED)
+  target_compile_definitions(cppcoro_http_options INTERFACE -DCPPCORO_HTTP_MBEDTLS=1)
 endif()
 
 #
@@ -76,7 +74,7 @@ add_library(${PROJECT_NAME} STATIC
   include/cppcoro/http/http_server.hpp
   include/cppcoro/http/http_client.hpp
   include/cppcoro/http/http_connection.hpp
-  include/cppcoro/http/request_processor.hpp
+  include/cppcoro/http/request_server.hpp
   include/cppcoro/http/route_controller.hpp
   include/cppcoro/http/route_parameter.hpp
 
@@ -90,6 +88,7 @@ add_library(${PROJECT_NAME} STATIC
   )
 target_include_directories(${PROJECT_NAME} PUBLIC include)
 target_link_libraries(${PROJECT_NAME} PUBLIC
+  cppcoro_http_options
   cppcoro::cppcoro
   http_parser::http_parser
   CONAN_PKG::ctre

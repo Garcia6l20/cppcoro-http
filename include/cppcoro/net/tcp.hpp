@@ -3,108 +3,221 @@
  */
 #pragma once
 
+#include <cppcoro/cancellation_source.hpp>
 #include <cppcoro/io_service.hpp>
 #include <cppcoro/net/socket.hpp>
-#include <cppcoro/cancellation_source.hpp>
+#include <cppcoro/net/ssl/concepts.hpp>
 
+#include <span>
 #include <utility>
 
-namespace cppcoro {
-    namespace net {
-        template<bool bind = true>
-        auto create_tcp_socket(io_service &ios, const ip_endpoint &endpoint) {
-            auto sock = socket{endpoint.is_ipv4() ? socket::create_tcpv4(ios) : socket::create_tcpv6(ios)};
-            if constexpr (bind) {
-                sock.bind(endpoint);
-            }
-            return sock;
-        }
-    }
-    namespace tcp {
-        class connection
-        {
-        public:
-            connection(connection &&other) noexcept
-                : sock_{std::move(other.sock_)}, ct_{std::move(other.ct_)} {}
-
-            connection(const connection &) = delete;
-
-            connection(net::socket socket, cancellation_token ct)
-                : sock_{std::move(socket)},
-                  ct_{std::move(ct)} {
-            }
-
-            [[nodiscard]] const net::ip_endpoint &peer_address() const {
-                return sock_.remote_endpoint();
-            }
-
-            [[nodiscard]] const auto &socket() const { return sock_; }
-
-        protected:
-            net::socket sock_;
-            cancellation_token ct_;
+namespace cppcoro
+{
+	namespace net
+	{
+		// clang-format off
+        template <typename T>
+        concept socket_provider = requires(T v) {
+            { v.create_listening_sock(std::declval<io_service&>()) } -> net::is_socket;
+            { v.create_connection_sock(std::declval<io_service&>()) } -> net::is_socket;
         };
+		// clang-format on
 
-        class server
-        {
-        public:
-            server(server &&other) noexcept: ios_{other.ios_}, endpoint_{std::move(other.endpoint_)},
-                                             socket_{std::move(other.socket_)}, cs_{other.cs_} {}
+		template<socket_provider SocketProviderT>
+		struct socket_consumer
+		{
+			static constexpr socket_provider auto socket_provider = SocketProviderT{};
+			using listening_socket_type =
+				decltype(socket_provider.create_listening_sock(std::declval<io_service&>()));
+			using connection_socket_type =
+				decltype(socket_provider.create_connection_sock(std::declval<io_service&>()));
+		};
 
-            server(const server &) = delete;
+		template<bool bind = true>
+		auto create_tcp_socket(io_service& ios, const ip_endpoint& endpoint)
+		{
+			auto sock = socket{ endpoint.is_ipv4() ? socket::create_tcpv4(ios)
+												   : socket::create_tcpv6(ios) };
+			if constexpr (bind)
+			{
+				sock.bind(endpoint);
+			}
+			return sock;
+		}
+	}  // namespace net
+	namespace tcp
+	{
+		template<net::is_cancelable_socket SocketT>
+		class connection
+		{
+		public:
+			connection(connection&& other) noexcept
+				: sock_{ std::move(other.sock_) }
+				, ct_{ std::move(other.ct_) }
+			{
+			}
 
-            server(io_service &ios, const net::ip_endpoint &endpoint)
-                : ios_{ios}, endpoint_{endpoint}, socket_{net::create_tcp_socket<true>(ios, endpoint_)} {
-                socket_.listen();
-            }
+			connection(const connection&) = delete;
 
-            task<connection> accept() {
-                auto sock = net::create_tcp_socket<false>(ios_, endpoint_);
-                co_await socket_.accept(sock, cs_.token());
-                co_return connection{std::move(sock), cs_.token()};
-            }
+			connection(SocketT socket, cancellation_token ct)
+				: sock_{ std::move(socket) }
+				, ct_{ std::move(ct) }
+			{
+			}
 
-            void stop() {
-                cs_.request_cancellation();
-            }
+			[[nodiscard]] const net::ip_endpoint& peer_address() const
+			{
+				return sock_.remote_endpoint();
+			}
 
-            auto token() noexcept { return cs_.token(); }
+			decltype(auto) receive(auto data)
+			{
+				return sock_.recv(reinterpret_cast<void*>(data.data()), data.size_bytes(), ct_);
+			}
 
-            auto &service() noexcept { return ios_; }
+			decltype(auto) receive(void* buffer, size_t size)
+			{
+				return sock_.recv(buffer, size, { ct_ });
+			}
 
-        protected:
-            io_service &ios_;
-            net::ip_endpoint endpoint_;
-            net::socket socket_;
-            cancellation_source cs_;
-        };
+			decltype(auto) send(auto data)
+			{
+				return sock_.send(
+					reinterpret_cast<const void*>(data.data()), data.size_bytes(), ct_);
+			}
 
-        class client
-        {
-        public:
-            client(client &&other) noexcept: ios_{other.ios_}, cs_{other.cs_} {}
+			decltype(auto) send(const void* buffer, size_t size)
+			{
+				return sock_.send(buffer, size, ct_);
+			}
 
-            client(const client &) = delete;
+			decltype(auto) disconnect() { return sock_.disconnect(); }
+			decltype(auto) close_send() { return sock_.close_send(); }
 
-            client(io_service &ios)
-                : ios_{ios} {
-            }
+			[[nodiscard]] auto& socket() { return sock_; }
 
-            task<connection> connect(net::ip_endpoint const&endpoint) {
-                auto sock = net::create_tcp_socket<false>(ios_, endpoint);
-                co_await sock.connect(endpoint, cs_.token());
-                co_return connection{std::move(sock), cs_.token()};
-            }
+		protected:
+			SocketT sock_;
+			cancellation_token ct_;
+		};
 
-            void stop() {
-                cs_.request_cancellation();
-            }
+		struct ipv4_socket_provider
+		{
+			auto create_listening_sock(io_service& ios) const
+			{
+				return net::socket::create_tcpv4(ios);
+			}
+			auto create_connection_sock(io_service& ios) const
+			{
+				return create_listening_sock(ios);
+			}
+		};
 
-            auto &service() noexcept { return ios_; }
+		template<net::socket_provider SocketProviderT = ipv4_socket_provider>
+		class server : net::socket_consumer<SocketProviderT>
+		{
+		public:
+			using connection_socket_type =
+				typename net::socket_consumer<SocketProviderT>::connection_socket_type;
+			using connection_type = connection<connection_socket_type>;
 
-        protected:
-            io_service &ios_;
-            cancellation_source cs_;
-        };
-    }
-}
+			server(server&& other) noexcept
+				: ios_{ other.ios_ }
+				, endpoint_{ std::move(other.endpoint_) }
+				, socket_{ std::move(other.socket_) }
+				, cs_{ other.cs_ }
+			{
+			}
+
+			server(const server&) = delete;
+
+			~server() noexcept = default;
+
+			server(io_service& ios, const net::ip_endpoint& endpoint)
+				: ios_{ ios }
+				, endpoint_{ endpoint }
+				, socket_{ this->socket_provider.create_listening_sock(ios) }
+			{
+				socket_.bind(endpoint_);
+				socket_.listen();
+			}
+
+			/** @brief Accept next incoming connection.
+			 *
+			 * @return The connection.
+			 */
+			task<connection_type> accept()
+			{
+				auto sock = this->socket_provider.create_connection_sock(ios_);
+				co_await socket_.accept(sock, cs_.token());
+				if constexpr (net::ssl::is_socket<connection_socket_type>)
+				{
+					co_await sock.encrypt(cs_.token());
+				}
+				co_return connection{ std::move(sock), cs_.token() };
+			}
+
+			decltype(auto) disconnect() { return socket_.disconnect(cs_.token()); }
+
+			/** @brief Stop the server.
+			 *
+			 */
+			void stop() { cs_.request_cancellation(); }
+
+			/** @brief Obtain cancellation token from server.
+			 *
+			 * @return A cancellation token.
+			 */
+			auto token() noexcept { return cs_.token(); }
+
+			auto& service() noexcept { return ios_; }
+
+			auto const& local_endpoint() const noexcept { return socket_.local_endpoint(); }
+
+		protected:
+			io_service& ios_;
+			net::ip_endpoint endpoint_;
+			net::socket socket_;
+			cancellation_source cs_;
+		};
+
+		template<net::socket_provider SocketProviderT = ipv4_socket_provider>
+		class client : net::socket_consumer<SocketProviderT>
+		{
+		public:
+			using connection_type =
+				connection<typename net::socket_consumer<SocketProviderT>::connection_socket_type>;
+			client(client&& other) noexcept
+				: ios_{ other.ios_ }
+				, cs_{ other.cs_ }
+			{
+			}
+
+			client(const client&) = delete;
+
+			client(io_service& ios)
+				: ios_{ ios }
+			{
+			}
+
+			task<connection_type> connect(net::ip_endpoint const& endpoint)
+			{
+				auto sock = this->socket_provider.create_connection_sock(ios_);
+				co_await sock.connect(endpoint, cs_.token());
+				if constexpr (requires { sock.encrypt(cs_.token()); })
+				{
+					co_await sock.encrypt(cs_.token());
+				}
+				co_return connection{ std::move(sock), cs_.token() };
+			}
+
+			void stop() { cs_.request_cancellation(); }
+
+			auto& service() noexcept { return ios_; }
+
+		protected:
+			io_service& ios_;
+			cancellation_source cs_;
+		};
+	}  // namespace tcp
+}  // namespace cppcoro

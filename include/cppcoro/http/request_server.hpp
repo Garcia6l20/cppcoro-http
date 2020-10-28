@@ -1,5 +1,5 @@
 /**
- * @file cppcoro/http/route_controller.hpp
+ * @file cppcoro/http/request_server.hpp
  * @author Sylvain Garcia <garcia.6l20@gmail.com>
  */
 #pragma once
@@ -9,19 +9,22 @@
 
 namespace cppcoro::http {
 
-    template<typename SessionT, typename ProcessorT>
-    class request_processor : public server
+    template<typename SocketProviderT, typename SessionT, typename ProcessorT>
+	class request_server : public http::server<SocketProviderT>
     {
-    public:
+		using base = http::server<SocketProviderT>;
+
+	public:
+		using base::base;
         using session_type = SessionT;
-        using server::server;
 
         task<> serve() {
             async_scope scope;
+            std::exception_ptr exception_ptr;
             try {
                 while (true) {
-                    auto conn = co_await listen();
-                    scope.spawn([](server *srv, http::server::connection_type conn) mutable -> task<> {
+                    auto conn = co_await this->listen();
+                    scope.spawn([](base *srv, typename base::connection_type conn) mutable -> task<> {
                         session_type session{};
                         http::string_request default_request;
                         auto init_request = [&](const http::request_parser &parser) -> http::detail::base_request& {
@@ -51,8 +54,13 @@ namespace cppcoro::http {
                         }
                     }(this, std::move(conn)));
                 }
-            } catch (operation_cancelled &) {}
+            } catch (...) {
+                exception_ptr = std::current_exception();
+			}
             co_await scope.join();
+			if (exception_ptr) {
+				std::rethrow_exception(exception_ptr);
+			}
         }
     };
 }

@@ -8,6 +8,7 @@
 #include <cppcoro/net/ssl/certificate.hpp>
 #include <cppcoro/net/ssl/context.hpp>
 #include <cppcoro/net/ssl/key.hpp>
+#include <cppcoro/net/concepts.hpp>
 
 #include <cppcoro/net/ip_endpoint.hpp>
 #include <cppcoro/net/socket.hpp>
@@ -66,9 +67,9 @@ namespace cppcoro::net::ssl
 			std::optional<ssl::private_key> pk);
 
 		// net::socket private methods
-		using net::socket::recv;
+		//using net::socket::recv;
 		using net::socket::recv_from;
-		using net::socket::send;
+		//using net::socket::send;
 		using net::socket::send_to;
 
 #ifdef CPPCORO_SSL_DEBUG
@@ -231,7 +232,7 @@ namespace cppcoro::net::ssl
 			mbedtls_ssl_conf_verify(ssl_config_.get(), &ssl::socket::_mbedtls_verify_cert, this);
 
 #ifdef CPPCORO_SSL_DEBUG
-			mbedtls_ssl_conf_dbg(&ssl_config_, &ssl::socket::_mbedtls_debug, this);
+			mbedtls_ssl_conf_dbg(ssl_config_.get(), &ssl::socket::_mbedtls_debug, this);
 #endif
 		}
 
@@ -359,16 +360,18 @@ namespace cppcoro::net::ssl
 		 *
 		 * @return Awaitable encryption task.
 		 */
-		task<> encrypt()
+		task<> encrypt(std::optional<cancellation_token> ct = {})
 		{
 			if (encrypted_)
 				co_return;
 
-			while (true)
+			while (not ct or not ct->is_cancellation_requested())
 			{
 				auto result = mbedtls_ssl_handshake(ssl_context_.get());
 				if (result == 0)
 				{
+					close_recv();
+                    encrypted_ = true;
 					break;
 				}
 				else if (result == MBEDTLS_ERR_SSL_WANT_READ)
@@ -381,10 +384,6 @@ namespace cppcoro::net::ssl
 				{
 					assert(to_send_);  // ensure buffer/len properly setup
 					to_send_.actual_len = co_await net::socket::send(to_send_.buf, to_send_.len);
-				}
-				else if (result == MBEDTLS_ERR_SSL_TIMEOUT)
-				{
-					co_await io_service_.schedule();  // reschedule ?
 				}
 				else if(result == MBEDTLS_ERR_SSL_PEER_VERIFY_FAILED)
 				{
@@ -408,11 +407,9 @@ namespace cppcoro::net::ssl
 				}
 				else
 				{
-                    spdlog::info("result: {:x}", result);
 					throw std::system_error(result, ssl::error_category, "mbedtls_ssl_handshake");
 				}
 			}
-			encrypted_ = true;
 
 		}
 
@@ -423,10 +420,10 @@ namespace cppcoro::net::ssl
 		 * @return          Awaitable send task.
 		 * @co_return       The sent size.
 		 */
-		task<size_t> send(const void* data, size_t size)
+		task<size_t> send(const void* data, size_t size, std::optional<cancellation_token> ct = {})
 		{
 			size_t offset = 0;
-			while (true)
+			while (not ct or not ct->is_cancellation_requested())
 			{
 				int result = mbedtls_ssl_write(
 					ssl_context_.get(),
@@ -459,10 +456,10 @@ namespace cppcoro::net::ssl
 		 * @return          Awaitable receive task.
 		 * @co_return       The received size.
 		 */
-		task<size_t> recv(void* data, size_t size)
+		task<size_t> recv(void* data, size_t size, std::optional<cancellation_token> ct = {})
 		{
 			size_t offset = 0;
-			while (true)
+			while (not ct or not ct->is_cancellation_requested())
 			{
 				int result = mbedtls_ssl_read(
 					ssl_context_.get(), reinterpret_cast<uint8_t*>(data) + offset, size - offset);
@@ -472,8 +469,12 @@ namespace cppcoro::net::ssl
 					to_receive_.actual_len =
 						co_await net::socket::recv(to_receive_.buf, to_receive_.len);
 				}
+				else if(result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+					throw std::system_error(std::make_error_code(std::errc::connection_reset));
+				}
 				else if (result < 0)
 				{
+					spdlog::info("mbedtls_ssl_read failed: {}", ssl::error_category.message(result));
 					throw std::system_error(result, ssl::error_category, "mbedtls_ssl_read");
 				}
 				else
@@ -487,6 +488,8 @@ namespace cppcoro::net::ssl
 			}
 		}
 	};
+    static_assert(net::is_socket<ssl::socket>);
+	static_assert(net::is_cancelable_socket<ssl::socket>);
 
 	template<ssl::socket::mode mode_, bool tcp_v6>
 	ssl::socket ssl::socket::create(
