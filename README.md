@@ -130,5 +130,6 @@ cmake -DCPPCORO_DEVEL=ON ..
 - [x] chunked transfers (server-side)
 - [ ] chunked transfers (client-side)
 - [x] ssl support ([mbed-tls](https://github.com/ARMmbed/mbedtls))
-- [ ] cookies
+- [x] cookies
+- [ ] web sockets
 - [ ] ...
