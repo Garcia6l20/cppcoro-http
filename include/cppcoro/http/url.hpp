@@ -21,7 +21,7 @@ namespace cppcoro::http
 				if (not ctre::match<R"([a-zA-Z0-9])">(std::string_view{ &input[ii], 1 }))
 				{
 					output.reserve(output.capacity() + 3);
-					output.append(fmt::format(FMT_STRING("%{:02X}"), input[ii]));
+					output.append(fmt::format(FMT_STRING("%{:02X}"), uint8_t(input[ii])));
 				}
 				else
 				{
@@ -38,9 +38,9 @@ namespace cppcoro::http
 			{
 				if (ctre::match<R"(%[a-zA-Z0-9]{2})">(std::string_view{ &input[ii], 3 }))
 				{
-					char c{};
+					uint8_t c{};
 					std::from_chars(&input[ii + 1], &input[ii + 3], c, 16);
-					output.append(std::string_view{ &c, 1 });
+					output.append(std::string_view{ reinterpret_cast<char*>(&c), 1 });
 					ii += 2;
 				}
 				else

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cppcoro/http/http.hpp>
+#include <cppcoro/http/url.hpp>
 #include <cppcoro/task.hpp>
 #include <cppcoro/async_generator.hpp>
 
@@ -166,7 +167,7 @@ namespace cppcoro::http::detail {
 
         static inline int on_url(detail::http_parser *parser, const char *data, size_t len) {
             auto &this_ = instance(parser);
-            this_.url_ = {data, data + len};
+            this_.url_ = uri::unescape({data, data + len});
             this_.state_ = status::on_url;
             return 0;
         }
