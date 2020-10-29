@@ -7,6 +7,7 @@
 #include <cppcoro/http/http_server.hpp>
 #include <cppcoro/http/route_controller.hpp>
 #include <cppcoro/http/http_chunk_provider.hpp>
+#include <cppcoro/http/session.hpp>
 
 #include <fmt/printf.h>
 
@@ -17,20 +18,22 @@
 using namespace cppcoro;
 namespace rng = std::ranges;
 
-struct session
-{
-    int id = std::rand();
-};
+using config = http::default_session_config<>;
 
+template <typename ConfigT>
+struct add_controller;
+
+template <typename ConfigT>
 using add_controller_def = http::route_controller<
     R"(/add/(\d+)/(\d+))",  // route definition
-    session,
+    ConfigT,
     http::string_request,
-    struct add_controller>;
+    add_controller>;
 
-struct add_controller : add_controller_def
+template <typename ConfigT>
+struct add_controller : add_controller_def<ConfigT>
 {
-    using add_controller_def::add_controller_def;
+    using add_controller_def<ConfigT>::add_controller_def;
 
     auto on_get(int lhs, int rhs) -> task <http::string_response> {
         co_return http::string_response{http::status::HTTP_STATUS_OK,
@@ -38,15 +41,20 @@ struct add_controller : add_controller_def
     }
 };
 
+template <typename ConfigT>
+struct hello_controller;
+
+template <typename ConfigT>
 using hello_controller_def = http::route_controller<
     R"(/hello/(\w+))",  // route definition
-    session,
+    ConfigT,
     http::string_request,
-    struct hello_controller>;
+    hello_controller>;
 
-struct hello_controller : hello_controller_def
+template <typename ConfigT>
+struct hello_controller : hello_controller_def<ConfigT>
 {
-    using hello_controller_def::hello_controller_def;
+    using hello_controller_def<ConfigT>::hello_controller_def;
 
     auto on_get(const std::string &who) -> task <http::string_response> {
         co_return http::string_response{http::status::HTTP_STATUS_OK,
@@ -54,23 +62,28 @@ struct hello_controller : hello_controller_def
     }
 };
 
+template <typename ConfigT>
+struct cat_controller;
+
+template <typename ConfigT>
 using cat_controller_def = http::route_controller<
     R"(/cat)",  // route definition
-    session,
+    ConfigT,
     http::string_request,
-    struct cat_controller>;
+    cat_controller>;
 
-struct cat_controller : cat_controller_def
+template <typename ConfigT>
+struct cat_controller : cat_controller_def<ConfigT>
 {
-    using cat_controller_def::cat_controller_def;
+    using cat_controller_def<ConfigT>::cat_controller_def;
 
     auto on_get() -> task <http::read_only_file_chunked_response> {
         co_return http::read_only_file_chunked_response{http::status::HTTP_STATUS_OK,
-                                                        http::read_only_file_chunk_provider{service(), __FILE__}};
+                                                        http::read_only_file_chunk_provider{this->service(), __FILE__}};
     }
 };
 
-using hello_server = http::controller_server<session,
+using hello_server = http::controller_server<config,
     hello_controller,
     add_controller,
     cat_controller>;
@@ -101,8 +114,6 @@ int main(const int argc, const char **argv) {
 
     io_service service;
 
-//#define SINGLE_THREAD
-#ifndef SINGLE_THREAD
     static const constinit int thread_count = 5;
     std::array<std::thread, thread_count> thread_pool;
     rng::generate(thread_pool, [&] {
@@ -110,7 +121,6 @@ int main(const int argc, const char **argv) {
             service.process_events();
         });
     });
-#endif
 
     auto do_serve = [&]() -> task<> {
         auto _ = on_scope_exit([&] {
@@ -124,19 +134,15 @@ int main(const int argc, const char **argv) {
 
     (void) sync_wait(when_all(
         do_serve()
-//#ifdef SINGLE_THREAD
         , [&]() -> task<> {
             service.process_events();
             co_return;
         }()
-//#endif
         ));
 
-#ifndef SINGLE_THREAD
     rng::for_each(thread_pool, [](auto &&th) {
         th.join();
     });
-#endif
 
     std::cout << "Bye !\n";
     return 0;

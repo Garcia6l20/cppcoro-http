@@ -6,47 +6,103 @@ It is built on top of [cppcoro](https://github.com/lewissbaker/cppcoro) library.
 ## HTTP Server
 
 ```c++
-struct session {
-    int id = std::rand();
-};
-
-using hello_controller_def = http::route_controller<
-    R"(/hello/(\w+))",  // route definition
-    session,
-    http::string_request,
-    struct hello_controller>;
-
-struct hello_controller : hello_controller_def
+template<typename ConfigT>
+struct session : http::session<ConfigT>
 {
-    using hello_controller_def::hello_controller_def;
-    // method handlers
-    auto on_post(std::string_view who) -> task<http::string_response> {
-        co_return http::string_response{http::status::HTTP_STATUS_OK,
-                                 fmt::format("post at {}: hello {}", session().id, who)};
-    }
-    auto on_get(std::string_view who) -> task<http::string_response> {
-        co_return http::string_response{http::status::HTTP_STATUS_OK,
-                                 fmt::format("get at {}: hello {}", session().id, who)};
-    }
+	explicit session(http::server<ConfigT>& server)
+		: http::session<ConfigT>{ server }
+	{
+	}
+	int id = std::rand();
 };
 
-io_service service;
+using config = http::config<session, tcp::ipv4_socket_provider>;
 
-auto do_serve = [&]() -> task<> {
-    auto _ = on_scope_exit([&] {
-        service.stop();
-    });
-    http::controller_server<session, hello_controller> server{
-        service,
-        *net::ip_endpoint::from_string("127.0.0.1:4242")};
-    co_await server.serve();
+template<typename ConfigT>
+struct hello_controller;
+
+template<typename ConfigT>
+using hello_controller_def = http::route_controller<
+	R"(/hello/(\w+))",  // route definition
+	ConfigT,
+	http::string_request,
+	hello_controller>;
+
+template<typename ConfigT>
+struct hello_controller : hello_controller_def<ConfigT>
+{
+	using hello_controller_def<ConfigT>::hello_controller_def;
+	// method handlers
+	auto on_post(std::string_view who) -> task<http::string_response>
+	{
+		co_return http::string_response{ http::status::HTTP_STATUS_OK,
+										 fmt::format(
+											 "post at {}: hello {}", this->session().id, who) };
+	}
+	auto on_get(std::string_view who) -> task<http::string_response>
+	{
+		co_return http::string_response{ http::status::HTTP_STATUS_OK,
+										 fmt::format(
+											 "get at {}: hello {}", this->session().id, who) };
+	}
 };
-(void) sync_wait(when_all(
-    do_serve(),
-    [&]() -> task<> {
-        service.process_events();
-        co_return;
-    }()));
+
+struct hello_chunk_provider : http::abstract_chunk_base
+{
+	std::string_view who;
+	using http::abstract_chunk_base::abstract_chunk_base;
+	hello_chunk_provider(io_service& service, std::string_view who)
+		: http::abstract_chunk_base{ service }
+		, who{ who }
+	{
+	}
+	async_generator<std::string_view> read(size_t)
+	{
+		co_yield "hello\n";
+		co_yield fmt::format("{}\n", who);
+	}
+};
+using hello_chunked_response = http::abstract_response<hello_chunk_provider>;
+
+template<typename ConfigT>
+struct hello_chunk_controller;
+
+template<typename ConfigT>
+using hello_chunk_controller_def = http::route_controller<
+	R"(/chunk/(\w+))",  // route definition
+	ConfigT,
+	http::string_request,
+	hello_chunk_controller>;
+
+template<typename ConfigT>
+struct hello_chunk_controller : hello_chunk_controller_def<ConfigT>
+{
+	using hello_chunk_controller_def<ConfigT>::hello_chunk_controller_def;
+	// method handlers
+	task<hello_chunked_response> on_get(std::string_view who)
+	{
+		co_return hello_chunked_response{ http::status::HTTP_STATUS_OK,
+										  hello_chunk_provider{ this->service(), who } };
+	}
+};
+
+int main()
+{
+	io_service service;
+
+	auto do_serve = [&]() -> task<> {
+		auto _ = on_scope_exit([&] { service.stop(); });
+		http::controller_server<config, hello_controller, hello_chunk_controller> server{
+			service, *net::ip_endpoint::from_string("127.0.0.1:4242")
+		};
+		co_await server.serve();
+	};
+	(void)sync_wait(when_all(do_serve(), [&]() -> task<> {
+		service.process_events();
+		co_return;
+	}()));
+	return 0;
+}
 ```
 
 ## Examples

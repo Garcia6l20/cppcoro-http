@@ -10,9 +10,17 @@
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
-#include "ssl/cert.hpp"
 
 using namespace cppcoro;
+
+#ifdef CPPCORO_HTTP_MBEDTLS
+#include "ssl/cert.hpp"
+using server_socket_provider = ipv4_ssl_server_provider;
+using client_socket_provider = ipv4_ssl_client_provider;
+#else
+using server_socket_provider = tcp::ipv4_socket_provider;
+using client_socket_provider = tcp::ipv4_socket_provider;
+#endif
 
 namespace rng = std::ranges;
 
@@ -25,7 +33,7 @@ TEST_CASE("echo server should work", "[cppcoro-http][server][echo]")
 	io_service ioSvc{ 512 };
 	constexpr size_t client_count = 25;
 
-	auto server = tcp::server<ipv4_ssl_server_provider>{ ioSvc, net::ipv4_endpoint{ net::ipv4_address::loopback(), 0 } };
+	auto server = tcp::server<server_socket_provider>{ ioSvc, net::ipv4_endpoint{ net::ipv4_address::loopback(), 0 } };
 
 	auto handleConnection = [](auto connection) -> task<void> {
 		std::uint8_t buffer[64];
@@ -78,7 +86,7 @@ TEST_CASE("echo server should work", "[cppcoro-http][server][echo]")
 	};
 
 	auto echoClient = [&]() -> task<> {
-		auto client = tcp::client<ipv4_ssl_client_provider>(ioSvc);
+		auto client = tcp::client<client_socket_provider>(ioSvc);
         auto con = co_await client.connect(server.local_endpoint());
 
 		auto receive = [&]() -> task<> {

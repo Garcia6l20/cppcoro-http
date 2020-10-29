@@ -77,7 +77,7 @@ namespace cppcoro::http
 		ctll::fixed_string route,
 		http::is_config ConfigT,
 		typename RequestT,
-		template <typename>
+		template<typename>
 		typename Derived>
 	class route_controller : public detail::abstract_route_controller
 	{
@@ -175,7 +175,7 @@ namespace cppcoro::http
 			return &*request_;
 		}
 
-		auto make_request(http::request_parser &parser)
+		auto make_request(http::request_parser& parser)
 		{
 			using request_body = typename request_type::body_type;
 			if constexpr (std::constructible_from<request_body, io_service&>)
@@ -190,7 +190,7 @@ namespace cppcoro::http
 
 	protected:
 		auto& request() { return *request_; }
-		auto& session() { return *static_cast<session_type *>(session_); }
+		auto& session() { return *static_cast<session_type*>(session_); }
 		auto& service() { return service_; }
 
 	public:
@@ -202,9 +202,9 @@ namespace cppcoro::http
 		explicit route_controller(io_service& service)
 			: detail::abstract_route_controller{ service }
 		{
-#define __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(__method)                  \
+#define __CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(__method)                       \
 	if constexpr (detail::is_##__method##_controller<derived_type>)             \
-	{                                                                      \
+	{                                                                           \
 		register_handler<http::method::__method>(&derived_type::on_##__method); \
 	}
 			__CPPCORO_HTTP_MAKE_METHOD_CHECKER_IMPL(post)
@@ -229,18 +229,12 @@ namespace cppcoro::http
 		}
 	};
 
-	template<
-		http::is_config ConfigT,
-		template <typename>
-		typename... ControllersT>
+	template<http::is_config ConfigT, template<typename> typename... ControllersT>
 	struct controller_server
-		: http::request_server<
-              ConfigT,
-			  controller_server<ConfigT, ControllersT...>>
+		: http::request_server<ConfigT, controller_server<ConfigT, ControllersT...>>
 	{
-		using processor_type = http::request_server<
-			ConfigT,
-			controller_server<ConfigT, ControllersT...>>;
+		using processor_type =
+			http::request_server<ConfigT, controller_server<ConfigT, ControllersT...>>;
 
 		using session_type = typename ConfigT::session_type;
 
@@ -248,12 +242,12 @@ namespace cppcoro::http
 		controller_server(
 			io_service& service, const net::ip_endpoint& endpoint, const ArgsT&... args) noexcept
 			: processor_type{ service, endpoint }
-			, controllers_{ std::make_unique<ControllersT<ConfigT>>(ControllersT<ConfigT>{ this->ios_, args... })... }
+			, controllers_{ std::make_unique<ControllersT<ConfigT>>(
+				  ControllersT<ConfigT>{ this->ios_, args... })... }
 		{
 		}
 
-		http::detail::base_request*
-		prepare(http::request_parser& parser, session_type& session)
+		http::detail::base_request* prepare(http::request_parser& parser, session_type& session)
 		{
 			next_proc_ = nullptr;
 			for (auto& controller : controllers_)

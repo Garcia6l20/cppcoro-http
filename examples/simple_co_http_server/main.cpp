@@ -21,7 +21,7 @@ using namespace cppcoro;
 namespace fs = std::filesystem;
 namespace rng = std::ranges;
 
-using http_config = http::config<>;
+using http_config = http::config<http::session, tcp::ipv4_socket_provider>;
 #ifdef CPPCORO_HTTP_MBEDTLS
 #include "cert.hpp"
 using https_config = http::config<http::session, ipv4_ssl_server_provider>;

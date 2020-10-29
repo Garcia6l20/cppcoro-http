@@ -15,16 +15,6 @@ namespace cppcoro
 {
 	namespace net
 	{
-		template<is_socket_provider SocketProviderT>
-		struct socket_consumer
-		{
-			static constexpr is_socket_provider auto socket_provider = SocketProviderT{};
-			using listening_socket_type =
-				decltype(socket_provider.create_listening_sock(std::declval<io_service&>()));
-			using connection_socket_type =
-				decltype(socket_provider.create_connection_sock(std::declval<io_service&>()));
-		};
-
 		template<bool bind = true>
 		auto create_tcp_socket(io_service& ios, const ip_endpoint& endpoint)
 		{
@@ -97,22 +87,22 @@ namespace cppcoro
 		{
 			using listening_socket_type = net::socket;
             using connection_socket_type = net::socket;
-            listening_socket_type create_listening_sock(io_service& ios) const
+            static listening_socket_type create_listening_sock(io_service& ios)
 			{
 				return net::socket::create_tcpv4(ios);
 			}
-            connection_socket_type create_connection_sock(io_service& ios) const
+            static connection_socket_type create_connection_sock(io_service& ios)
 			{
 				return create_listening_sock(ios);
 			}
 		};
 
 		template<net::is_socket_provider SocketProviderT = ipv4_socket_provider>
-		class server : net::socket_consumer<SocketProviderT>
+		class server
 		{
 		public:
 			using connection_socket_type =
-				typename net::socket_consumer<SocketProviderT>::connection_socket_type;
+				typename SocketProviderT::connection_socket_type;
 			using connection_type = connection<connection_socket_type>;
 
 			server(server&& other) noexcept
@@ -130,7 +120,7 @@ namespace cppcoro
 			server(io_service& ios, const net::ip_endpoint& endpoint)
 				: ios_{ ios }
 				, endpoint_{ endpoint }
-				, socket_{ this->socket_provider.create_listening_sock(ios) }
+				, socket_{ SocketProviderT::create_listening_sock(ios) }
 			{
 				socket_.bind(endpoint_);
 				socket_.listen();
@@ -142,7 +132,7 @@ namespace cppcoro
 			 */
 			task<connection_type> accept()
 			{
-				auto sock = this->socket_provider.create_connection_sock(ios_);
+				auto sock = SocketProviderT::create_connection_sock(ios_);
 				co_await socket_.accept(sock, cs_.token());
 				if constexpr (net::ssl::is_socket<connection_socket_type>)
 				{
@@ -175,12 +165,12 @@ namespace cppcoro
 			cancellation_source cs_;
 		};
 
-		template<net::is_socket_provider SocketProviderT = ipv4_socket_provider>
-		class client : net::socket_consumer<SocketProviderT>
+		template<net::is_connection_socket_provider SocketProviderT = ipv4_socket_provider>
+		class client
 		{
 		public:
 			using connection_type =
-				connection<typename net::socket_consumer<SocketProviderT>::connection_socket_type>;
+				connection<typename SocketProviderT::connection_socket_type>;
 			client(client&& other) noexcept
 				: ios_{ other.ios_ }
 				, cs_{ other.cs_ }
@@ -196,7 +186,7 @@ namespace cppcoro
 
 			task<connection_type> connect(net::ip_endpoint const& endpoint)
 			{
-				auto sock = this->socket_provider.create_connection_sock(ios_);
+				auto sock = SocketProviderT::create_connection_sock(ios_);
 				co_await sock.connect(endpoint, cs_.token());
 				if constexpr (requires { sock.encrypt(cs_.token()); })
 				{

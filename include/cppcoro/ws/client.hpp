@@ -17,7 +17,7 @@ namespace cppcoro::ws
 		using base = http::client<SocketProviderT>;
 		static constexpr uint32_t ws_version_ = 13;
 
-		std::string random_string(size_t len)
+		static std::string random_string(size_t len)
 		{
 			constexpr char charset[] = "0123456789"
 									   "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -42,13 +42,15 @@ namespace cppcoro::ws
 		{
 			http_connection_type conn = co_await base::connect(endpoint);
 			std::string hash = crypto::base64::encode(random_string(20));
-			http::headers headers{ {
-				{ "Connection", "Upgrade" },
-				{ "Upgrade", "websocket" },
-				{ "Sec-WebSocket-Key", hash },
-				{ "Sec-WebSocket-Version", std::to_string(ws_version_) },
-			} };
-			auto resp = co_await conn.get("/", "", std::move(headers));
+			auto resp = co_await conn.get(
+				"/",
+				"",
+				http::headers{
+					{ "Connection", "Upgrade" },
+					{ "Upgrade", "websocket" },
+					{ "Sec-WebSocket-Key", hash },
+					{ "Sec-WebSocket-Version", std::to_string(ws_version_) },
+				});
 
 			if (not resp)
 			{

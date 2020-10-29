@@ -61,11 +61,13 @@ x5upWG2/c9eFDUONeuUWYt4=
 
 struct ipv4_ssl_server_provider
 {
-    auto create_listening_sock(cppcoro::io_service& ios) const
+    using listening_socket_type = cppcoro::net::socket;
+    using connection_socket_type = cppcoro::net::ssl::socket;
+    static listening_socket_type create_listening_sock(cppcoro::io_service& ios)
     {
         return cppcoro::net::socket::create_tcpv4(ios);
     }
-    cppcoro::net::ssl::socket create_connection_sock(cppcoro::io_service& ios) const
+    static connection_socket_type create_connection_sock(cppcoro::io_service& ios)
     {
         auto sock = cppcoro::net::ssl::socket::create_server(
             ios, cppcoro::net::ssl::certificate{ cert }, cppcoro::net::ssl::private_key{ key });
@@ -76,11 +78,8 @@ struct ipv4_ssl_server_provider
 
 struct ipv4_ssl_client_provider
 {
-    auto create_listening_sock(cppcoro::io_service& ios) const
-    {
-        return cppcoro::net::socket::create_tcpv4(ios);
-    }
-    cppcoro::net::ssl::socket create_connection_sock(cppcoro::io_service& ios) const
+    using connection_socket_type = cppcoro::net::ssl::socket;
+    static connection_socket_type create_connection_sock(cppcoro::io_service& ios)
     {
         auto sock = cppcoro::net::ssl::socket::create_client(ios);
         sock.set_peer_verify_mode(cppcoro::net::ssl::peer_verify_mode::required);
