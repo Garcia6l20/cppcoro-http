@@ -205,6 +205,11 @@ namespace cppcoro::http {
             }
         }
 
+		template <typename ConnectionT>
+		ConnectionT upgrade() noexcept {
+			return ConnectionT{std::move(this->sock_)};
+		}
+
     private:
 
 
