@@ -3,8 +3,8 @@
  */
 #pragma once
 
-#include <cppcoro/http/http_connection.hpp>
-#include <cppcoro/http/http_response.hpp>
+#include <cppcoro/http/connection.hpp>
+#include <cppcoro/http/response.hpp>
 #include <cppcoro/net/concepts.hpp>
 #include <cppcoro/net/tcp.hpp>
 #include <cppcoro/operation_cancelled.hpp>

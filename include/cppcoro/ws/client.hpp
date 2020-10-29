@@ -3,7 +3,7 @@
  */
 #pragma once
 
-#include <cppcoro/http/http_client.hpp>
+#include <cppcoro/http/client.hpp>
 
 #include <cppcoro/ws/connection.hpp>
 

@@ -6,7 +6,7 @@
 
 #include <cppcoro/async_scope.hpp>
 #include <cppcoro/http/concepts.hpp>
-#include <cppcoro/http/http_server.hpp>
+#include <cppcoro/http/server.hpp>
 
 namespace cppcoro::http
 {

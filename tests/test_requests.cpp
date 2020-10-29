@@ -1,13 +1,13 @@
 #include <catch2/catch.hpp>
 
-#include <cppcoro/http/http_request.hpp>
-#include <cppcoro/http/http_response.hpp>
-#include <cppcoro/task.hpp>
-#include <cppcoro/sync_wait.hpp>
-#include <cppcoro/when_all.hpp>
-#include <cppcoro/is_awaitable.hpp>
+#include <cppcoro/http/request.hpp>
+#include <cppcoro/http/response.hpp>
 #include <cppcoro/io_service.hpp>
+#include <cppcoro/is_awaitable.hpp>
 #include <cppcoro/on_scope_exit.hpp>
+#include <cppcoro/sync_wait.hpp>
+#include <cppcoro/task.hpp>
+#include <cppcoro/when_all.hpp>
 
 using namespace cppcoro;
 

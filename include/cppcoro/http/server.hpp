@@ -4,7 +4,7 @@
 #pragma once
 
 #include <cppcoro/http/concepts.hpp>
-#include <cppcoro/http/http_connection.hpp>
+#include <cppcoro/http/connection.hpp>
 #include <cppcoro/net/tcp.hpp>
 #include <cppcoro/operation_cancelled.hpp>
 #include <cppcoro/task.hpp>

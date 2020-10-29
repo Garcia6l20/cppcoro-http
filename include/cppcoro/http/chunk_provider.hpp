@@ -10,7 +10,7 @@
 #include <cppcoro/write_only_file.hpp>
 #include <cppcoro/filesystem.hpp>
 
-#include <cppcoro/http/http_message.hpp>
+#include <cppcoro/http/message.hpp>
 
 namespace cppcoro::http {
 

@@ -5,9 +5,9 @@
 #pragma once
 
 #include <cppcoro/http/details/router.hpp>
-#include <cppcoro/http/http_request.hpp>
-#include <cppcoro/http/http_response.hpp>
+#include <cppcoro/http/request.hpp>
 #include <cppcoro/http/request_server.hpp>
+#include <cppcoro/http/response.hpp>
 
 #include <cppcoro/task.hpp>
 

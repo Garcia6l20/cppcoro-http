@@ -66,29 +66,9 @@ conan_cmake_run(
 #
 # cppcoro/http
 #
-add_library(${PROJECT_NAME} STATIC
-  include/cppcoro/net/tcp.hpp
-  include/cppcoro/http/http.hpp
-  include/cppcoro/http/http_message.hpp
-  include/cppcoro/http/http_request.hpp
-  include/cppcoro/http/http_response.hpp
-  include/cppcoro/http/http_server.hpp
-  include/cppcoro/http/http_client.hpp
-  include/cppcoro/http/http_connection.hpp
-  include/cppcoro/http/request_server.hpp
-  include/cppcoro/http/route_controller.hpp
-  include/cppcoro/http/route_parameter.hpp
-
-  include/cppcoro/http/details/router.hpp
-  include/cppcoro/http/details/static_parser_handler.hpp
-
-  include/cppcoro/detail/function_traits.hpp
-  include/cppcoro/detail/type_index.hpp
-
-  src/http.cpp
-  )
-target_include_directories(${PROJECT_NAME} PUBLIC include)
-target_link_libraries(${PROJECT_NAME} PUBLIC
+add_library(${PROJECT_NAME} INTERFACE)
+target_include_directories(${PROJECT_NAME} INTERFACE include)
+target_link_libraries(${PROJECT_NAME} INTERFACE
   cppcoro_http_options
   cppcoro::cppcoro
   http_parser::http_parser

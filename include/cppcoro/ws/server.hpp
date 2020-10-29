@@ -4,7 +4,7 @@
 #pragma once
 
 #include <cppcoro/http/concepts.hpp>
-#include <cppcoro/http/http_server.hpp>
+#include <cppcoro/http/server.hpp>
 
 #include <cppcoro/ws/connection.hpp>
 

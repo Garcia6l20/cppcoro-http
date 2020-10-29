@@ -3,7 +3,7 @@
 #include <fmt/format.h>
 
 #include <cppcoro/async_scope.hpp>
-#include <cppcoro/http/http_client.hpp>
+#include <cppcoro/http/client.hpp>
 #include <cppcoro/http/session.hpp>
 #include <cppcoro/io_service.hpp>
 #include <cppcoro/net/tcp.hpp>

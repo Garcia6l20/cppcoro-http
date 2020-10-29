@@ -1,9 +1,9 @@
 //#define CPPCORO_SSL_DEBUG
 
-#include <cppcoro/http/http_chunk_provider.hpp>
+#include <cppcoro/http/chunk_provider.hpp>
+#include <cppcoro/http/config.hpp>
 #include <cppcoro/http/route_controller.hpp>
 #include <cppcoro/http/session.hpp>
-#include <cppcoro/http/config.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
@@ -18,7 +18,7 @@
 #include <thread>
 
 using namespace cppcoro;
-namespace fs = std::filesystem;
+namespace fs = cppcoro::filesystem;
 namespace rng = std::ranges;
 
 using http_config = http::config<http::session, tcp::ipv4_socket_provider>;
@@ -60,11 +60,7 @@ struct home_controller : home_controller_def<ConfigT>
             <h2>Simple CppCoro HTTP Server</h2>
             <p class="lead">{path}</p>
         </div>
-        <nav aria-label="breadcrumb">
-        <ol class="breadcrumb">
-        {breadcrumb}
-        </ol>
-        </nav>
+        <nav aria-label="breadcrumb"><ol class="breadcrumb">{breadcrumb}</ol></nav>
         {body}
     </div>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>

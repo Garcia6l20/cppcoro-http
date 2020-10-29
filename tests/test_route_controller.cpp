@@ -2,7 +2,7 @@
 
 #include <fmt/format.h>
 
-#include <cppcoro/http/http_client.hpp>
+#include <cppcoro/http/client.hpp>
 #include <cppcoro/http/route_controller.hpp>
 #include <cppcoro/http/session.hpp>
 #include <cppcoro/io_service.hpp>

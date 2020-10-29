@@ -1,12 +1,12 @@
 #include <cppcoro/async_scope.hpp>
-#include <cppcoro/http/http_server.hpp>
+#include <cppcoro/http/server.hpp>
 #include <cppcoro/http/session.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/task.hpp>
 #include <cppcoro/when_all.hpp>
 
-#include <cppcoro/http/http_chunk_provider.hpp>
+#include <cppcoro/http/chunk_provider.hpp>
 #include <cppcoro/http/route_controller.hpp>
 #include <fmt/format.h>
 

@@ -3,10 +3,10 @@
 #include <fmt/format.h>
 
 #include <cppcoro/generator.hpp>
-#include <cppcoro/http/http_chunk_provider.hpp>
-#include <cppcoro/http/http_client.hpp>
-#include <cppcoro/http/http_server.hpp>
+#include <cppcoro/http/chunk_provider.hpp>
+#include <cppcoro/http/client.hpp>
 #include <cppcoro/http/route_controller.hpp>
+#include <cppcoro/http/server.hpp>
 #include <cppcoro/http/session.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/read_only_file.hpp>
