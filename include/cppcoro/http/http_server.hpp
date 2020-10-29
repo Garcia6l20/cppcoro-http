@@ -20,7 +20,7 @@ namespace cppcoro::http
 	{
 	public:
         using connection_type = connection<
-            server, ConfigT>;
+            server, typename ConfigT::socket_provider>;
 
 		using base = tcp::server<typename ConfigT::socket_provider>;
 		using base::server;

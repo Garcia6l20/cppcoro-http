@@ -38,12 +38,16 @@ namespace cppcoro::net
 
     template <typename T>
     concept is_connection_socket_provider = requires(T v) {
-        { v.create_connection_sock(std::declval<io_service&>()) } -> net::is_cancelable_socket;
+        typename T::connection_socket_type;
+        (net::is_cancelable_socket<typename T::connection_socket_type>);
+        { v.create_connection_sock(std::declval<io_service&>()) } -> std::same_as<typename T::connection_socket_type>;
     };
 
     template <typename T>
     concept is_socket_provider = is_connection_socket_provider<T> and requires(T v) {
-        { v.create_listening_sock(std::declval<io_service&>()) } -> net::is_cancelable_socket;
+        typename T::listening_socket_type;
+        (net::is_cancelable_socket<typename T::listening_socket_type>);
+        { v.create_listening_sock(std::declval<io_service&>()) } -> std::same_as<typename T::listening_socket_type>;
     };
 	// clang-format on
 

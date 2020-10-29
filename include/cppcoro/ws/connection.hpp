@@ -1,37 +1,38 @@
-/** @file cppcoro/ws/server.hpp
+/** @file cppcoro/ws/connection.hpp
  * @author Sylvain Garcia <garcia.6l20@gmail.com>
  */
 #pragma once
 
-#include <cppcoro/http/concepts.hpp>
+#include <cppcoro/net/concepts.hpp>
 #include <cppcoro/ws/header.hpp>
 #include <cppcoro/task.hpp>
 
-namespace cppcoro::http::ws
+namespace cppcoro::ws
 {
-	template<is_config ConfigT>
+	template<net::is_connection_socket_provider SocketProviderT>
 	class connection
 	{
 	public:
-		using socket_type = typename ConfigT::connection_socket_type;
+		using socket_type = typename SocketProviderT::connection_socket_type;
 
 		explicit connection(socket_type sock) noexcept
 			: sock_{ std::move(sock) }
 		{
 		}
 
-		task<size_t> send(std::string_view data)
+		template <typename CharT, size_t extent = std::dynamic_extent>
+		task<size_t> send(std::span<CharT, extent> data)
 		{
 			std::array<std::byte, 1024> buffer{};
 			size_t data_offset = 0;
-			while (data_offset < data.size())
+			while (data_offset < data.size_bytes())
 			{
 				header h{
 					.opcode = op_code::text_frame,
 				};
-				size_t payload_size = std::min(buffer.size(), data.size() - data_offset);
+				size_t payload_size = std::min(buffer.size(), data.size_bytes() - data_offset);
 				auto [send_size, payload_len] = h.calc_payload_size(payload_size, buffer.size());
-				if (data_offset + payload_len >= data.size())
+				if (data_offset + payload_len >= data.size_bytes())
 				{
 					h.fin = true;
 				}
@@ -72,7 +73,6 @@ namespace cppcoro::http::ws
 					output_offset += h.payload_len;
 				}
 			} while (not h.fin);
-			sock_.close_recv();
 			co_return output;
 		}
 

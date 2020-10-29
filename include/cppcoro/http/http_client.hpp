@@ -25,9 +25,7 @@ namespace cppcoro::http
 		using base::client;
 		using base::service;
 		using base::stop;
-		using connection_type = connection<
-			client,
-			typename net::socket_consumer<SocketProviderT>::connection_socket_type>;
+		using connection_type = connection<client, SocketProviderT>;
 
 		task<connection_type> connect(net::ip_endpoint const& endpoint)
 		{

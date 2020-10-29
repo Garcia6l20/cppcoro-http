@@ -11,7 +11,7 @@
 #include <span>
 #include <tuple>
 
-namespace cppcoro::http::ws
+namespace cppcoro::ws
 {
 	enum class op_code : uint8_t
 	{

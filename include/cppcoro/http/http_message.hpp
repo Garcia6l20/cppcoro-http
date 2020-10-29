@@ -8,221 +8,292 @@
 
 #include <fmt/format.h>
 
-namespace cppcoro::http {
+namespace cppcoro::http
+{
+	namespace detail
+	{
+		enum
+		{
+			max_body_size = 1024
+		};
 
-    namespace detail {
+		struct base_message
+		{
+			base_message() = default;
 
-        enum { max_body_size = 1024 };
+			explicit base_message(http::headers&& headers)
+				: headers{ std::forward<http::headers>(headers) }
+			{
+			}
 
-        struct base_message
-        {
-            base_message() = default;
+			base_message(base_message const& other) = delete;
 
-            explicit base_message(http::headers &&headers)
-                : headers{std::forward<http::headers>(headers)} {}
+			base_message& operator=(base_message const& other) = delete;
 
-            base_message(base_message const &other) = delete;
+			base_message(base_message&& other) = default;
 
-            base_message &operator=(base_message const &other) = delete;
+			base_message& operator=(base_message&& other) = default;
 
-            base_message(base_message &&other) = default;
-
-            base_message &operator=(base_message &&other) = default;
-
-			std::optional<std::reference_wrapper<std::string>> header(const std::string &key) noexcept {
-				static std::string empty{};
-				if (auto it = headers.find(key); it != headers.end()) {
+			std::optional<std::reference_wrapper<std::string>>
+			header(const std::string& key) noexcept
+			{
+				if (auto it = headers.find(key); it != headers.end())
+				{
 					return it->second;
 				}
 				return {};
 			}
 
-            http::headers headers;
+			http::headers headers;
 
-            virtual bool is_chunked() = 0;
-            virtual std::string build_header() = 0;
-            virtual task<std::string_view> read_body(size_t max_size = max_body_size) = 0;
-            virtual task<size_t> write_body(std::string_view data) = 0;
-        };
+			virtual bool is_chunked() = 0;
+			virtual std::string build_header() = 0;
+			virtual task<std::string_view> read_body(size_t max_size = max_body_size) = 0;
+			virtual task<size_t> write_body(std::string_view data) = 0;
+		};
 
-        struct base_request : base_message
-        {
-            static constexpr bool is_request = true;
-            static constexpr bool is_response = false;
-            using base_message::base_message;
+		struct base_request : base_message
+		{
+			static constexpr bool is_request = true;
+			static constexpr bool is_response = false;
+			using base_message::base_message;
 
-            base_request(base_request &&other) = default;
-            base_request& operator=(base_request &&other) = default;
+			base_request(base_request&& other) = default;
+			base_request& operator=(base_request&& other) = default;
 
-            base_request(http::method method, std::string &&path, http::headers &&headers = {})
-                : base_message{std::forward<http::headers>(headers)}, method{method},
-                  path{std::forward<std::string>(path)} {}
+			base_request(http::method method, std::string&& path, http::headers&& headers = {})
+				: base_message{ std::forward<http::headers>(headers) }
+				, method{ method }
+				, path{ std::forward<std::string>(path) }
+			{
+			}
 
-            http::method method;
-            std::string path;
+			http::method method;
+			std::string path;
 
-            [[nodiscard]] auto method_str() const {
-                return http_method_str(static_cast<detail::http_method>(method));
-            }
+			[[nodiscard]] auto method_str() const
+			{
+				return http_method_str(static_cast<detail::http_method>(method));
+			}
 
-            std::string to_string() const {
-                return fmt::format("{} {}", method_str(), path);
-            }
-        };
+			std::string to_string() const { return fmt::format("{} {}", method_str(), path); }
+		};
 
-        struct base_response : base_message
-        {
-            static constexpr bool is_response = true;
-            static constexpr bool is_request = false;
-            using base_message::base_message;
+		struct base_response : base_message
+		{
+			static constexpr bool is_response = true;
+			static constexpr bool is_request = false;
+			using base_message::base_message;
 
-            base_response(base_response &&other) = default;
-            base_response& operator=(base_response &&other) = default;
+			base_response(base_response&& other) = default;
+			base_response& operator=(base_response&& other) = default;
 
-            base_response(http::status status, http::headers &&headers = {})
-                : base_message{std::forward<http::headers>(headers)}, status{status} {}
+			base_response(http::status status, http::headers&& headers = {})
+				: base_message{ std::forward<http::headers>(headers) }
+				, status{ status }
+			{
+			}
 
-            http::status status;
+			http::status status;
 
-            [[nodiscard]] auto status_str() const {
-                return http_status_str(static_cast<detail::http_status>(status));
-            }
+			[[nodiscard]] auto status_str() const
+			{
+				return http_status_str(static_cast<detail::http_status>(status));
+			}
 
-            std::string to_string() const {
-                return status_str();
-            }
-        };
+			std::string to_string() const { return status_str(); }
+		};
 
-        template<bool _is_response, is_body BodyT>
-        struct abstract_message : std::conditional_t<_is_response, base_response, base_request>
-        {
-            using base_type = std::conditional_t<_is_response, base_response, base_request>;
-            static constexpr bool is_response = _is_response;
-            static constexpr bool is_request = !_is_response;
+		template<bool _is_response, is_body BodyT>
+		struct abstract_message : std::conditional_t<_is_response, base_response, base_request>
+		{
+			using base_type = std::conditional_t<_is_response, base_response, base_request>;
+			static constexpr bool is_response = _is_response;
+			static constexpr bool is_request = !_is_response;
 			using parser_type = http::detail::static_parser_handler<is_request>;
 
-            using base_type::base_type;
+			using base_type::base_type;
 
-            using body_type = BodyT;
-            BodyT body_access;
+			using body_type = BodyT;
+			BodyT body_access;
 
-            std::optional<async_generator<std::string_view>> chunk_generator_;
-            std::optional<async_generator<std::string_view>::iterator> chunk_generator_it_;
+			std::optional<async_generator<std::string_view>> chunk_generator_;
+			std::optional<async_generator<std::string_view>::iterator> chunk_generator_it_;
 
-            abstract_message(parser_type &parser, BodyT &&body = {}) requires (is_response)
-                : base_response{parser.status_code(), std::move(parser.headers_)}
-                , body_access{std::forward<BodyT>(body)} {
-            }
+			abstract_message(parser_type& parser, BodyT&& body = {}) requires(is_response)
+				: base_response{ parser.status_code(), std::move(parser.headers_) }
+				, body_access{ std::forward<BodyT>(body) }
+			{
+			}
 
-            abstract_message(parser_type &parser, BodyT &&body = {}) requires (is_request)
-                : base_request{parser.method(), std::move(parser.url()), std::move(parser.headers_)}
-                , body_access{std::forward<BodyT>(body)} {
-            }
+			abstract_message(parser_type& parser, BodyT&& body = {}) requires(is_request)
+				: base_request{ parser.method(),
+								std::move(parser.url()),
+								std::move(parser.headers_) }
+				, body_access{ std::forward<BodyT>(body) }
+			{
+			}
 
-            abstract_message(http::status status, BodyT &&body = {}, http::headers &&headers = {}) requires (is_response)
-                : base_response{status, std::forward<http::headers>(headers)}
-                , body_access{std::forward<BodyT>(body)} {
-            }
+			abstract_message(
+				http::status status,
+				BodyT&& body = {},
+				http::headers&& headers = {}) requires(is_response)
+				: base_response{ status, std::forward<http::headers>(headers) }
+				, body_access{ std::forward<BodyT>(body) }
+			{
+			}
 
-            abstract_message(http::method method, std::string &&path, BodyT &&body = {}, http::headers &&headers = {}) requires (is_request)
-                : base_request{method, std::forward<std::string>(path), std::forward<http::headers>(headers)}
-                , body_access{std::forward<BodyT>(body)} {
-            }
+			abstract_message(
+				http::method method,
+				std::string&& path,
+				BodyT&& body = {},
+				http::headers&& headers = {}) requires(is_request)
+				: base_request{ method,
+								std::forward<std::string>(path),
+								std::forward<http::headers>(headers) }
+				, body_access{ std::forward<BodyT>(body) }
+			{
+			}
 
-			auto &operator=(parser_type &parser) noexcept requires (is_request) {
+			auto& operator=(parser_type& parser) noexcept requires(is_request)
+			{
 				this->method = parser.method();
-                this->path = std::move(parser.url());
-                this->headers = std::move(parser.headers_);
+				this->path = std::move(parser.url());
+				this->headers = std::move(parser.headers_);
 				return *this;
 			}
 
-//            explicit abstract_message(base_type &&base) noexcept : base_type(std::move(base))  {}
-//            abstract_message& operator=(base_type &&base) noexcept {
-//                static_cast<base_type>(*this) = std::move(base);
-//            }
+			//            explicit abstract_message(base_type &&base) noexcept :
+			//            base_type(std::move(base))  {} abstract_message& operator=(base_type
+			//            &&base) noexcept {
+			//                static_cast<base_type>(*this) = std::move(base);
+			//            }
 
-            bool is_chunked() final {
-                if constexpr (ro_chunked_body<body_type> or wo_chunked_body<body_type>) {
-                    return true;
-                } else {
-                    return false;
+			bool is_chunked() final
+			{
+				if constexpr (ro_chunked_body<body_type> or wo_chunked_body<body_type>)
+				{
+					return true;
+				}
+				else
+				{
+					return false;
+				}
+			}
+
+			task<std::string_view> read_body(size_t max_size = max_body_size) final
+			{
+				if constexpr (ro_basic_body<BodyT>)
+				{
+					co_return std::string_view{ body_access.data(), body_access.size() };
+				}
+				else if constexpr (ro_chunked_body<BodyT>)
+				{
+					if (not chunk_generator_)
+					{
+						chunk_generator_ = body_access.read(max_size);
+						chunk_generator_it_ = co_await chunk_generator_->begin();
+						if (*chunk_generator_it_ != chunk_generator_->end())
+						{
+							co_return** chunk_generator_it_;
+						}
+					}
+					else if (
+						chunk_generator_it_ and
+						co_await ++*chunk_generator_it_ != chunk_generator_->end())
+					{
+						co_return** chunk_generator_it_;
+					}
+					co_return std::string_view{};
+				}
+			}
+
+			task<size_t> write_body(std::string_view data) final
+			{
+				if constexpr (wo_basic_body<BodyT>)
+				{
+					auto size = data.size();
+					this->body_access.append(data);
+					co_return size;
+				}
+				else if constexpr (wo_chunked_body<BodyT>)
+				{
+					co_return co_await this->body_access.write(data);
+				}
+			}
+
+			inline std::string build_header() final
+			{
+                for (auto& [k, v] : this->headers)
+                {
+                    spdlog::debug("- {}: {}", k, v);
                 }
-            }
+				std::string output = _header_base();
+				auto write_header = [&output](const std::string& field, const std::string& value) {
+					output += fmt::format("{}: {}\r\n", field, value);
+				};
+				if constexpr (ro_basic_body<BodyT>)
+				{
+					auto sz = this->body_access.size();
+					if (auto node = this->headers.extract("Content-Length"); !node.empty())
+					{
+						node.mapped() = std::to_string(sz);
+						this->headers.insert(std::move(node));
+					}
+					else
+					{
+						this->headers.emplace("Content-Length", std::to_string(sz));
+					}
+				}
+				else if constexpr (ro_chunked_body<BodyT>)
+				{
+					this->headers.emplace("Transfer-Encoding", "chunked");
+				}
+				for (auto& [field, value] : this->headers)
+				{
+					write_header(field, value);
+				}
+				output += "\r\n";
+				return output;
+			}
 
-            task<std::string_view> read_body(size_t max_size = max_body_size) final {
-                if constexpr (ro_basic_body<BodyT>) {
-                    co_return std::string_view{body_access.data(), body_access.size()};
-                } else if constexpr (ro_chunked_body<BodyT>) {
-                    if (not chunk_generator_) {
-                        chunk_generator_ = body_access.read(max_size);
-                        chunk_generator_it_ = co_await chunk_generator_->begin();
-                        if (*chunk_generator_it_ != chunk_generator_->end()) {
-                            co_return **chunk_generator_it_;
-                        }
-                    } else if (chunk_generator_it_ and co_await ++*chunk_generator_it_ != chunk_generator_->end()) {
-                        co_return **chunk_generator_it_;
-                    }
-                    co_return std::string_view{};
-                }
-            }
+		private:
+			inline auto _header_base()
+			{
+				if constexpr (is_response)
+				{
+					return fmt::format(
+						"HTTP/1.1 {} {}\r\n"
+						"UserAgent: cppcoro-http/0.0\r\n",
+						int(this->status),
+						http_status_str(this->status));
+				}
+				else
+				{
+					return fmt::format(
+						"{} {} HTTP/1.1\r\n"
+						"UserAgent: cppcoro-http/0.0\r\n",
+						this->method_str(),
+						this->path);
+				}
+			}
+		};
 
-            task<size_t> write_body(std::string_view data) final {
-                if constexpr (wo_basic_body<BodyT>) {
-                    auto size = data.size();
-                    this->body_access.append(data);
-                    co_return size;
-                } else if constexpr (wo_chunked_body<BodyT>) {
-                    co_return co_await this->body_access.write(data);
-                }
-            }
+	}  // namespace detail
 
-            inline std::string build_header() final {
-                std::string output = _header_base();
-                auto write_header = [&output](const std::string &field, const std::string &value) {
-                    output += fmt::format("{}: {}\r\n", field, value);
-                };
-                if constexpr (ro_basic_body<BodyT>) {
-                    this->headers.emplace("Content-Length", std::to_string(this->body_access.size()));
-                } else if constexpr (ro_chunked_body<BodyT>) {
-                    this->headers.emplace("Transfer-Encoding", "chunked");
-                }
-                for (auto &[field, value] : this->headers) {
-                    write_header(field, value);
-                }
-                output += "\r\n";
-                return output;
-            }
+	template<detail::is_body BodyT>
+	using abstract_response = detail::abstract_message<true, BodyT>;
 
-        private:
-            inline auto _header_base() {
-                if constexpr (is_response) {
-                    return fmt::format("HTTP/1.1 {} {}\r\n"
-                                       "UserAgent: cppcoro-http/0.0\r\n",
-                                       int(this->status),
-                                       http_status_str(this->status));
-                } else {
-                    return fmt::format("{} {} HTTP/1.1\r\n"
-                                       "UserAgent: cppcoro-http/0.0\r\n",
-                                       this->method_str(),
-                                       this->path);
-                }
-            }
-        };
+	template<detail::is_body BodyT>
+	using abstract_request = detail::abstract_message<false, BodyT>;
 
+	struct request_parser : detail::static_parser_handler<true>
+	{
+		using detail::static_parser_handler<true>::static_parser_handler;
+	};
 
-    }
-
-    template<detail::is_body BodyT>
-    using abstract_response = detail::abstract_message<true, BodyT>;
-
-    template<detail::is_body BodyT>
-    using abstract_request = detail::abstract_message<false, BodyT>;
-
-    struct request_parser : detail::static_parser_handler<true> {
-        using detail::static_parser_handler<true>::static_parser_handler;
-    };
-
-    struct response_parser : detail::static_parser_handler<false> {
-        using detail::static_parser_handler<false>::static_parser_handler;
-    };
-}
+	struct response_parser : detail::static_parser_handler<false>
+	{
+		using detail::static_parser_handler<false>::static_parser_handler;
+	};
+}  // namespace cppcoro::http

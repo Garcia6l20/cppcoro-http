@@ -95,11 +95,13 @@ namespace cppcoro
 
 		struct ipv4_socket_provider
 		{
-			auto create_listening_sock(io_service& ios) const
+			using listening_socket_type = net::socket;
+            using connection_socket_type = net::socket;
+            listening_socket_type create_listening_sock(io_service& ios) const
 			{
 				return net::socket::create_tcpv4(ios);
 			}
-			auto create_connection_sock(io_service& ios) const
+            connection_socket_type create_connection_sock(io_service& ios) const
 			{
 				return create_listening_sock(ios);
 			}

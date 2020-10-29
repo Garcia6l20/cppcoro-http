@@ -3,6 +3,7 @@
  */
 #pragma once
 
+#include <cppcoro/http/concepts.hpp>
 #include <cppcoro/http/http_server.hpp>
 
 #include <cppcoro/ws/connection.hpp>
@@ -10,9 +11,9 @@
 #include <cppcoro/crypto/sha1.hpp>
 #include <cppcoro/crypto/base64.hpp>
 
-namespace cppcoro::http::ws
+namespace cppcoro::ws
 {
-    template<is_config ConfigT>
+    template<http::is_config ConfigT>
     class server : public http::server<ConfigT>
     {
         using base = http::server<ConfigT>;
@@ -20,7 +21,7 @@ namespace cppcoro::http::ws
     public:
         using base::base;
 
-        using connection_type = ws::connection<ConfigT>;
+        using connection_type = ws::connection<typename ConfigT::socket_provider>;
 
         using http_connection_type = typename base::connection_type;
         task<connection_type> listen()
