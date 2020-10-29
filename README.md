@@ -36,14 +36,14 @@ struct hello_controller : hello_controller_def<ConfigT>
 	auto on_post(std::string_view who) -> task<http::string_response>
 	{
 		co_return http::string_response{ http::status::HTTP_STATUS_OK,
-										 fmt::format(
-											 "post at {}: hello {}", this->session().id, who) };
+            fmt::format("post at {}: hello {}",
+                        this->session().id, who) };
 	}
 	auto on_get(std::string_view who) -> task<http::string_response>
 	{
 		co_return http::string_response{ http::status::HTTP_STATUS_OK,
-										 fmt::format(
-											 "get at {}: hello {}", this->session().id, who) };
+            fmt::format("get at {}: hello {}",
+                        this->session().id, who) };
 	}
 };
 
@@ -82,7 +82,7 @@ struct hello_chunk_controller : hello_chunk_controller_def<ConfigT>
 	task<hello_chunked_response> on_get(std::string_view who)
 	{
 		co_return hello_chunked_response{ http::status::HTTP_STATUS_OK,
-										  hello_chunk_provider{ this->service(), who } };
+            hello_chunk_provider{ this->service(), who } };
 	}
 };
 
