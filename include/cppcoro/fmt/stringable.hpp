@@ -4,6 +4,8 @@
 
 #include <cppcoro/net/ip_endpoint.hpp>
 
+#include <concepts>
+
 namespace fmt {
 
     namespace concepts {

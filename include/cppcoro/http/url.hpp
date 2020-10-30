@@ -10,9 +10,19 @@
 
 namespace cppcoro::http
 {
-	namespace uri
+	class uri
 	{
-		auto escape(std::string_view input)
+        std::string uri_;
+	public:
+        std::string_view scheme{};
+        std::string_view host{};
+        std::string_view port{};
+        std::string_view path{};
+        std::string_view parameters{};
+
+		uri(std::string input) noexcept;
+
+		static auto escape(std::string_view input)
 		{
 			std::string output{};
 			output.reserve(input.size());
@@ -30,7 +40,7 @@ namespace cppcoro::http
 			}
 			return output;
 		}
-		auto unescape(std::string_view input)
+        static auto unescape(std::string_view input)
 		{
             std::string output{};
 			output.reserve(input.size());
@@ -50,5 +60,5 @@ namespace cppcoro::http
 			}
 			return output;
 		}
-	}  // namespace uri
+	};
 }  // namespace cppcoro::http

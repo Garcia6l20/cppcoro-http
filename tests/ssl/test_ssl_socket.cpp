@@ -3,7 +3,7 @@
 //#define CPPCORO_SSL_DEBUG
 
 #include <cppcoro/async_scope.hpp>
-#include <cppcoro/net/ssl/socket.hpp>
+#include <cppcoro/ssl/socket.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/task.hpp>

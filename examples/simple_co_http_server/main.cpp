@@ -13,7 +13,7 @@
 #include <lyra/help.hpp>
 #include <lyra/opt.hpp>
 
-#include <cppcoro/net/ssl/socket.hpp>
+#include <cppcoro/net/socket.hpp>
 #include <ranges>
 #include <thread>
 

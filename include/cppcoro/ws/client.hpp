@@ -73,8 +73,7 @@ namespace cppcoro::ws
 			{
 				throw std::runtime_error("missing accept header");
 			}
-			auto upgraded = conn.template upgrade<ws::connection<SocketProviderT>>();
-			co_return std::move(upgraded);
+			co_return conn.template upgrade<ws::connection<SocketProviderT>>();;
 		}
 	};
 }  // namespace cppcoro::ws

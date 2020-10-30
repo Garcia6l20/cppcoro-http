@@ -7,8 +7,8 @@
 #include <mbedtls/debug.h>
 #include <mbedtls/entropy.h>
 
-#include <cppcoro/net/ssl/certificate.hpp>
-#include <cppcoro/net/ssl/error.hpp>
+#include <cppcoro/ssl/certificate.hpp>
+#include <cppcoro/ssl/error.hpp>
 
 #include <stdexcept>
 

@@ -66,9 +66,11 @@ conan_cmake_run(
 #
 # cppcoro/http
 #
-add_library(${PROJECT_NAME} INTERFACE)
-target_include_directories(${PROJECT_NAME} INTERFACE include)
-target_link_libraries(${PROJECT_NAME} INTERFACE
+add_library(${PROJECT_NAME} STATIC
+  src/uri.cpp)
+
+target_include_directories(${PROJECT_NAME} PUBLIC include)
+target_link_libraries(${PROJECT_NAME} PUBLIC
   cppcoro_http_options
   cppcoro::cppcoro
   http_parser::http_parser
@@ -76,14 +78,14 @@ target_link_libraries(${PROJECT_NAME} INTERFACE
   CONAN_PKG::fmt
   CONAN_PKG::spdlog
   CONAN_PKG::nlohmann_json)
-target_precompile_headers(${PROJECT_NAME} INTERFACE
+target_precompile_headers(${PROJECT_NAME} PUBLIC
   <ctre/functions.hpp>
   <ctll/fixed_string.hpp>
   )
 add_library(cppcoro::http ALIAS ${PROJECT_NAME})
 
 if(CPPCORO_HTTP_MBEDTLS)
-  target_link_libraries(${PROJECT_NAME} INTERFACE
+  target_link_libraries(${PROJECT_NAME} PUBLIC
     mbed::tls
     mbed::crypto
     mbed::x509

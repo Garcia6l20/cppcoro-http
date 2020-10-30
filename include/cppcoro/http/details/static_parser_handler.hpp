@@ -8,6 +8,7 @@
 #include <fmt/format.h>
 
 #include <memory>
+#include <concepts>
 
 namespace cppcoro::http::detail
 {
@@ -191,7 +192,7 @@ namespace cppcoro::http::detail
 		static inline int on_url(detail::http_parser* parser, const char* data, size_t len)
 		{
 			auto& this_ = instance(parser);
-			this_.url_ = uri::unescape({ data, data + len });
+			this_.url_ = uri::unescape({ data, len });
 			this_.state_ = status::on_url;
 			return 0;
 		}

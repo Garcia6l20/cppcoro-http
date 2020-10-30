@@ -6,7 +6,7 @@
 #include <cppcoro/http/route_controller.hpp>
 #include <cppcoro/http/session.hpp>
 #include <cppcoro/io_service.hpp>
-#include <cppcoro/net/ssl/socket.hpp>
+#include <cppcoro/net/socket.hpp>
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>

@@ -1,4 +1,4 @@
-/** @file cppcoro/net/ssl/certificate.hpp
+/** @file cppcoro/ssl/certificate.hpp
  * @author Sylvain Garcia <garcia.6l20@gmail.com>
  */
 #pragma once
@@ -7,9 +7,9 @@
 
 #include <fmt/format.h>
 
-#include <cppcoro/detail/c_ptr.hpp>
 #include <cppcoro/filesystem.hpp>
-#include <cppcoro/net/ssl/error.hpp>
+#include <cppcoro/ssl/error.hpp>
+#include <cppcoro/detail/c_ptr.hpp>
 
 #include <span>
 

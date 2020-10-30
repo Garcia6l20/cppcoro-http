@@ -57,7 +57,7 @@ x5upWG2/c9eFDUONeuUWYt4=
 -----END PRIVATE KEY-----)" };
 }  // namespace
 
-#include <cppcoro/net/ssl/socket.hpp>
+#include <cppcoro/ssl/socket.hpp>
 
 struct ipv4_ssl_server_provider
 {

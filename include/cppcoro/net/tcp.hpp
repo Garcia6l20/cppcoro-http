@@ -6,7 +6,7 @@
 #include <cppcoro/cancellation_source.hpp>
 #include <cppcoro/io_service.hpp>
 #include <cppcoro/net/socket.hpp>
-#include <cppcoro/net/ssl/concepts.hpp>
+#include <cppcoro/ssl/concepts.hpp>
 
 #include <span>
 #include <utility>
