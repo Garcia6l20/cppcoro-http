@@ -42,15 +42,19 @@ namespace cppcoro::ws
 		{
 			http_connection_type conn = co_await base::connect(endpoint);
 			std::string hash = crypto::base64::encode(random_string(20));
+
+            // GCC 11 bug:
+			//  cannot inline headers initialization in co_await statement
+            http::headers headers{
+                { "Connection", "Upgrade" },
+                { "Upgrade", "websocket" },
+                { "Sec-WebSocket-Key", hash },
+                { "Sec-WebSocket-Version", std::to_string(ws_version_) },
+            };
 			auto resp = co_await conn.get(
 				"/",
 				"",
-				http::headers{
-					{ "Connection", "Upgrade" },
-					{ "Upgrade", "websocket" },
-					{ "Sec-WebSocket-Key", hash },
-					{ "Sec-WebSocket-Version", std::to_string(ws_version_) },
-				});
+				std::move(headers));
 
 			if (not resp)
 			{
