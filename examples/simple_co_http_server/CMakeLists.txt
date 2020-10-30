@@ -1,6 +1,6 @@
 conan_cmake_run(
   REQUIRES
-    lyra/1.4.0
+    lyra/1.5.1
   BASIC_SETUP CMAKE_TARGETS
   BUILD outdated)
 
