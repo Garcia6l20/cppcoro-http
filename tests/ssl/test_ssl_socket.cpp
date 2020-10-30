@@ -8,6 +8,7 @@
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/task.hpp>
 #include <cppcoro/when_all.hpp>
+#include <cppcoro/cancellation_source.hpp>
 
 #include <spdlog/spdlog.h>
 
@@ -15,7 +16,7 @@ using namespace cppcoro;
 
 #include "cert.hpp"
 
-SCENARIO("one ssl client", "[cppcoro-http][ssl]")
+SCENARIO("one ssl client", "[cppcoro-http][ssl][single]")
 {
 #ifdef CPPCORO_SSL_DEBUG
 	spdlog::set_level(spdlog::level::debug);
@@ -24,23 +25,24 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 	io_service io_service;
 	auto endpoint = *net::ipv4_endpoint::from_string("127.0.0.1:4242");
 	bool failure = false;
+	cancellation_source canceler;
+    auto server = net::socket::create_tcpv4(io_service);
 	(void)sync_wait(when_all(
 		[&]() -> task<> {
-			auto _ = on_scope_exit([&] { io_service.stop(); });
+			auto _ = on_scope_exit([&] { canceler.request_cancellation(); io_service.stop(); });
 			try
 			{
-				auto server = net::socket::create_tcpv4(io_service);
 				server.bind(endpoint);
 				auto sock = net::ssl::socket::create_server(
 					io_service, net::ssl::certificate{ cert }, net::ssl::private_key{ key });
 				server.listen();
-				co_await server.accept(sock);
+				co_await server.accept(sock, canceler.token());
 				sock.host_name("localhost");
 				spdlog::debug("connection accepted");
 				co_await sock.encrypt();
 				spdlog::debug("connection encrypted");
 				uint8_t buffer[64] = {};
-				auto bytes_received = co_await sock.recv(buffer, sizeof(buffer));
+				auto bytes_received = co_await sock.recv(buffer, sizeof(buffer), canceler.token());
 				REQUIRE(bytes_received == 12);
 				std::string_view data{ reinterpret_cast<char*>(buffer), bytes_received };
 				spdlog::debug("received {} bytes: {}", bytes_received, data);
@@ -51,21 +53,26 @@ SCENARIO("one ssl client", "[cppcoro-http][ssl]")
 			{
 				spdlog::error("server error: {}", error.what());
 				failure = true;
+				canceler.request_cancellation();
 			}
 			co_return;
 		}(),
 		[&]() -> task<> {
+			auto _ = on_scope_exit([&]{
+				if (failure)
+                    canceler.request_cancellation();
+			});
 			try
 			{
 				std::string_view data{ "hello ssl !!" };
 				auto client = net::ssl::socket::create_client(io_service);
-				co_await client.connect(endpoint);
+				co_await client.connect(endpoint, canceler.token());
 				spdlog::debug("connected");
 				client.set_peer_verify_mode(net::ssl::peer_verify_mode::required);
 				client.set_verify_flags(net::ssl::verify_flags::allow_untrusted);
-				co_await client.encrypt();
+				co_await client.encrypt(canceler.token());
 				spdlog::debug("encrypted");
-				auto sent_bytes = co_await client.send(data.data(), data.size());
+				auto sent_bytes = co_await client.send(data.data(), data.size(), canceler.token());
 				REQUIRE(sent_bytes == data.size());
 			}
 			catch (std::exception& error)
@@ -102,12 +109,13 @@ void multi_clients_test()
 	(void)sync_wait(when_all(
 		[&]() -> task<> {
 			auto _ = on_scope_exit([&] { io_service.stop(); });
+			std::exception_ptr exception_ptr;
+            async_scope scope;
 			try
 			{
 				auto server = net::socket::create_tcpv4(io_service);
 				server.bind(endpoint);
 				server.listen();
-				async_scope scope;
 				for (size_t client_num = 0; client_num < client_count; ++client_num)
 				{
 					auto sock = net::ssl::socket::create_server(
@@ -132,9 +140,13 @@ void multi_clients_test()
 				}
 				co_await scope.join();
 			}
-			catch (std::exception& error)
+			catch (...)
 			{
-				spdlog::error("server error: {}", error.what());
+                exception_ptr = std::current_exception();
+			}
+            co_await scope.join();
+			if (exception_ptr) {
+			    std::rethrow_exception(exception_ptr);
 			}
 			co_return;
 		}(),
@@ -168,7 +180,7 @@ void multi_clients_test()
 	rng::for_each(futures, [](auto&& f) { f.get(); });
 }
 
-SCENARIO("multiple ssl clients", "[cppcoro-http][ssl]")
+SCENARIO("multiple ssl clients", "[cppcoro-http][ssl][multi]")
 {
 #ifdef CPPCORO_SSL_DEBUG
 	spdlog::set_level(spdlog::level::debug);
@@ -176,7 +188,7 @@ SCENARIO("multiple ssl clients", "[cppcoro-http][ssl]")
 	multi_clients_test();
 }
 
-SCENARIO("multiple ssl clients multi-threaded", "[cppcoro-http][ssl]")
+SCENARIO("multiple ssl clients multi-threaded", "[cppcoro-http][multi][multi-threaded]")
 {
 #ifdef CPPCORO_SSL_DEBUG
 	spdlog::set_level(spdlog::level::debug);

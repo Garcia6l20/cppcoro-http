@@ -7,6 +7,10 @@
 #include <cppcoro/concepts.hpp>
 #include <cppcoro/net/ip_endpoint.hpp>
 
+namespace cppcoro {
+	class io_service;
+}
+
 namespace cppcoro::net
 {
 	// clang-format off
