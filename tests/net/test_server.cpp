@@ -14,7 +14,7 @@
 using namespace cppcoro;
 
 #ifdef CPPCORO_HTTP_MBEDTLS
-#include "ssl/cert.hpp"
+#include "../ssl/cert.hpp"
 using server_socket_provider = ipv4_ssl_server_provider;
 using client_socket_provider = ipv4_ssl_client_provider;
 #else

@@ -12,36 +12,26 @@
 
 namespace cppcoro::http::detail
 {
+	// clang-format off
 	template<typename BodyT>
 	concept ro_chunked_body = requires(BodyT&& body)
 	{
-		{
-			body.read(size_t(0))
-		}
-		->std::same_as<async_generator<std::string_view>>;
+		{ body.read(size_t(0)) } -> std::same_as<async_generator<std::string_view>>;
 	};
 	template<typename BodyT>
 	concept wo_chunked_body = requires(BodyT&& body)
 	{
-		{
-			body.write(std::string_view{})
-		}
-		->std::same_as<task<size_t>>;
+		{ body.write(std::string_view{}) } ->std::same_as<task<size_t>>;
 	};
+
 	template<typename BodyT>
-	concept rw_chunked_body = ro_chunked_body<BodyT>and wo_chunked_body<BodyT>;
+	concept chunked_body = ro_chunked_body<BodyT>and wo_chunked_body<BodyT>;
 
 	template<typename BodyT>
 	concept ro_basic_body = requires(BodyT&& body)
 	{
-		{
-			body.data()
-		}
-		->std::same_as<char*>;
-		{
-			body.size()
-		}
-		->std::same_as<size_t>;
+		{ body.data() } ->std::same_as<char*>;
+		{ body.size() } ->std::same_as<size_t>;
 	};
 	template<typename BodyT>
 	concept wo_basic_body = requires(BodyT&& body)
@@ -50,7 +40,7 @@ namespace cppcoro::http::detail
 		{ body.append(std::string_view{}) };
 	};
 	template<typename BodyT>
-	concept rw_basic_body = ro_basic_body<BodyT>and wo_basic_body<BodyT>;
+	concept basic_body = ro_basic_body<BodyT>and wo_basic_body<BodyT>;
 
 	template<typename BodyT>
 	concept readable_body = ro_basic_body<BodyT> or ro_chunked_body<BodyT>;
@@ -60,6 +50,8 @@ namespace cppcoro::http::detail
 
 	template<typename BodyT>
 	concept is_body = readable_body<BodyT> or writeable_body<BodyT>;
+
+    // clang-format on
 
 	template<bool is_request>
 	class static_parser_handler

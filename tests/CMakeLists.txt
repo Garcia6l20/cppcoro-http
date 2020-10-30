@@ -16,14 +16,23 @@ macro(basic_test _filename)
   catch_discover_tests(${_target})
 endmacro()
 
-basic_test(test_requests.cpp)
-basic_test(test_route_controller.cpp)
-basic_test(test_server.cpp)
-basic_test(test_chunked.cpp)
-basic_test(test_uri.cpp)
+macro(add_tests)
+  set(test_file_list "${ARGN}")
+  foreach(test_file IN LISTS test_file_list)
+    basic_test(${test_file})
+  endforeach()
+endmacro()
+
+add_tests(
+  http/test_requests.cpp
+  http/test_route_controller.cpp
+  http/test_chunked.cpp
+  http/test_uri.cpp
+  net/test_server.cpp
+  )
 
 add_subdirectory(web_socket)
 
 if(CPPCORO_HTTP_MBEDTLS)
-  add_subdirectory(ssl)
+  add_tests(ssl/test_ssl_socket.cpp)
 endif()
