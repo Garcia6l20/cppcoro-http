@@ -6,9 +6,9 @@
 #include <mbedtls/timing.h>
 
 #include <cppcoro/net/concepts.hpp>
-#include <cppcoro/net/ssl/certificate.hpp>
-#include <cppcoro/net/ssl/context.hpp>
-#include <cppcoro/net/ssl/key.hpp>
+#include <cppcoro/ssl/certificate.hpp>
+#include <cppcoro/ssl/context.hpp>
+#include <cppcoro/ssl/key.hpp>
 
 #include <cppcoro/net/ip_endpoint.hpp>
 #include <cppcoro/net/socket.hpp>
@@ -58,7 +58,7 @@ namespace cppcoro::net::ssl
 		{
 			server,
 			client
-		};
+		} mode_;
 
 		template<mode mode_, bool tcp_v6 = false>
 		static socket create(
@@ -172,6 +172,7 @@ namespace cppcoro::net::ssl
 			std::optional<ssl::certificate> cert,
 			std::optional<ssl::private_key> key)
 			: net::socket{ std::move(sock) }
+			, mode_{mode_}
 			, io_service_{ service }
 			, certificate_{ std::move(cert) }
 			, key_{ std::move(key) }
@@ -195,7 +196,7 @@ namespace cppcoro::net::ssl
 			// default:
 			//  - server: dont verify clients
 			//  - client: verify server
-			peer_verify_mode(verify_mode_);
+			set_peer_verify_mode(verify_mode_);
 
 			mbedtls_ssl_conf_rng(
 				ssl_config_.get(), mbedtls_ctr_drbg_random, &context.drbg_context());
@@ -253,6 +254,7 @@ namespace cppcoro::net::ssl
 		// move ctor (must update callbacks)
 		socket(socket&& other) noexcept
 			: net::socket(std::move(other))
+            , mode_{mode_}
 			, io_service_{ other.io_service_ }
 			, certificate_{ std::move(other.certificate_) }
 			, key_{ std::move(other.key_) }
@@ -373,8 +375,8 @@ namespace cppcoro::net::ssl
 				auto result = mbedtls_ssl_handshake(ssl_context_.get());
 				if (result == 0)
 				{
-//					close_recv();
-					encrypted_ = true;
+					if (mode_ == mode::client)
+					    close_recv();
 					break;
 				}
 				else if (result == MBEDTLS_ERR_SSL_WANT_READ)
