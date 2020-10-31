@@ -2,7 +2,7 @@
 
 #include <cppcoro/async_generator.hpp>
 #include <cppcoro/http/http.hpp>
-#include <cppcoro/http/url.hpp>
+#include <cppcoro/net/uri.hpp>
 #include <cppcoro/task.hpp>
 
 #include <fmt/format.h>
@@ -184,7 +184,7 @@ namespace cppcoro::http::detail
 		static inline int on_url(detail::http_parser* parser, const char* data, size_t len)
 		{
 			auto& this_ = instance(parser);
-			this_.url_ = uri::unescape({ data, len });
+			this_.url_ = net::uri::unescape({ data, len });
 			this_.state_ = status::on_url;
 			return 0;
 		}

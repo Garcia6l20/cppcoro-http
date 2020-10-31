@@ -8,7 +8,7 @@
 #include <fmt/format.h>
 #include <string_view>
 
-namespace cppcoro::http
+namespace cppcoro::net
 {
 	class uri
 	{

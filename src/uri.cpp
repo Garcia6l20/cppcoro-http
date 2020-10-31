@@ -1,4 +1,4 @@
-#include <cppcoro/http/url.hpp>
+#include <cppcoro/net/uri.hpp>
 
 #include <ctre.hpp>
 #include <utility>
@@ -14,7 +14,7 @@ namespace
 	} uri_impl;
 }  // namespace
 
-namespace cppcoro::http
+namespace cppcoro::net
 {
 	uri::uri(std::string input) noexcept :
 		uri_{std::move(input)} {
