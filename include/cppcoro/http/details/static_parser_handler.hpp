@@ -7,8 +7,14 @@
 
 #include <fmt/format.h>
 
-#include <memory>
 #include <concepts>
+#include <memory>
+#include <span>
+
+namespace cppcoro::http
+{
+	using byte_span = std::span<std::byte, std::dynamic_extent>;
+}
 
 namespace cppcoro::http::detail
 {
@@ -28,17 +34,19 @@ namespace cppcoro::http::detail
 	concept chunked_body = ro_chunked_body<BodyT>and wo_chunked_body<BodyT>;
 
 	template<typename BodyT>
-	concept ro_basic_body = requires(BodyT&& body)
+	concept ro_basic_body = requires(BodyT& body)
 	{
-		{ body.data() } ->std::same_as<char*>;
-		{ body.size() } ->std::same_as<size_t>;
+		{ std::as_bytes(body) };
 	};
+
+    template<typename T>
+    concept is_const = std::is_const_v<T>;
+
 	template<typename BodyT>
 	concept wo_basic_body = requires(BodyT&& body)
 	{
-		//{ BodyT((char *) nullptr, (char *) nullptr) } -> std::same_as<BodyT>;
-		{ body.append(std::string_view{}) };
-	};
+        { std::as_writable_bytes(body) };
+	} or std::same_as<BodyT, std::string>;
 	template<typename BodyT>
 	concept basic_body = ro_basic_body<BodyT>and wo_basic_body<BodyT>;
 
@@ -51,7 +59,7 @@ namespace cppcoro::http::detail
 	template<typename BodyT>
 	concept is_body = readable_body<BodyT> or writeable_body<BodyT>;
 
-    // clang-format on
+	// clang-format on
 
 	template<bool is_request>
 	class static_parser_handler
@@ -86,6 +94,8 @@ namespace cppcoro::http::detail
 
 		bool has_body() const noexcept { return body_.size(); }
 
+		bool chunked() const { return state_ != status::on_message_complete && has_body(); }
+
 		operator bool() const { return state_ == status::on_message_complete; }
 
 		const void parse(const char* data, size_t len)
@@ -107,25 +117,39 @@ namespace cppcoro::http::detail
 
 		auto method() const { return static_cast<http::method>(parser_->method); }
 		auto status_code() const { return static_cast<http::status>(parser_->status_code); }
-
-		template<typename MessageT>
-		task<> load(MessageT& message)
+		template<bool status>
+		auto status_code_or_method() const
 		{
-			static_assert(is_request == MessageT::is_request);
-			if constexpr (is_request)
+			if constexpr (status)
 			{
-				message.method = method();
-				message.path = url_;
+				return status_code();
 			}
 			else
 			{
-				message.status = status_code();
-			}
-			if (!this->body_.empty())
-			{
-				co_await message.write_body(body_);
+				return method();
 			}
 		}
+
+//		template<typename MessageT>
+//		task<> load(MessageT& message)
+//		{
+//			static_assert(is_request == MessageT::is_request);
+//			if constexpr (is_request)
+//			{
+//				message.method = method();
+//				message.path = url_;
+//			}
+//			else
+//			{
+//				message.status = status_code();
+//			}
+//			if (!this->body_.empty())
+//			{
+//				co_await message.write_body(body_);
+//			}
+//		}
+
+		[[nodiscard]] auto body() const { return body_; }
 
 		const auto& url() const { return url_; }
 
@@ -224,7 +248,7 @@ namespace cppcoro::http::detail
 		static inline int on_body(detail::http_parser* parser, const char* data, size_t len)
 		{
 			auto& this_ = instance(parser);
-			this_.body_ = { data, len };
+			this_.body_ = std::as_writable_bytes(std::span{ const_cast<char*>(data), len });
 			this_.state_ = status::on_body;
 			return 0;
 		}
@@ -278,7 +302,7 @@ namespace cppcoro::http::detail
 		status state_{ status::none };
 		std::string_view header_field_;
 		std::string url_;
-		std::string_view body_;
+		byte_span body_;
 		http::headers headers_;
 
 		template<bool _is_response, is_body BodyT>

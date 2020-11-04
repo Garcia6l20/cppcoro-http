@@ -103,7 +103,7 @@ namespace cppcoro::http
 			using traits = detail::function_traits<HandlerT>;
 			using handler_trait = detail::view_handler_traits<
 				cppcoro::task<detail::base_response>,
-				detail::function_detail::parameters_tuple_all_enabled,
+				detail::parameters_tuple_all_enabled,
 				HandlerT>;
 			using response_type = typename handler_trait::await_result_type;
 			std::shared_ptr<response_type> response;
@@ -162,7 +162,7 @@ namespace cppcoro::http
 			{
 				using traits = detail::function_traits<decltype(&derived_type::init_request)>;
 				using data_type = typename traits::template parameters_tuple<
-					detail::function_detail::parameters_tuple_disable<request_type>>::tuple_type;
+					detail::parameters_tuple_disable<request_type>>::tuple_type;
 				data_type data;
 				detail::load_data(match_result_, data);
 				std::apply(

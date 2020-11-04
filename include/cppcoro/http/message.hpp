@@ -5,8 +5,10 @@
 #pragma once
 
 #include <cppcoro/http/details/static_parser_handler.hpp>
+#include <cppcoro/detail/is_specialization.hpp>
 
 #include <fmt/format.h>
+#include <span>
 
 namespace cppcoro::http
 {
@@ -45,11 +47,13 @@ namespace cppcoro::http
 			}
 
 			http::headers headers;
+			byte_span body;
 
-			virtual bool is_chunked() = 0;
-			virtual std::string build_header() = 0;
-			virtual task<std::string_view> read_body(size_t max_size = max_body_size) = 0;
-			virtual task<size_t> write_body(std::string_view data) = 0;
+//			virtual bool is_chunked() = 0;
+//			virtual std::string build_header() = 0;
+			//			virtual task<std::span<std::byte, std::dynamic_extent>> read_body(size_t
+			//max_size = max_body_size) = 0; 			virtual task<size_t> write_body(std::span<std::byte,
+			//std::dynamic_extent> data) = 0;
 		};
 
 		struct base_request : base_message
@@ -114,44 +118,29 @@ namespace cppcoro::http
 
 			using base_type::base_type;
 
-			using body_type = BodyT;
-			BodyT body_access;
-
 			std::optional<async_generator<std::string_view>> chunk_generator_;
 			std::optional<async_generator<std::string_view>::iterator> chunk_generator_it_;
 
-			abstract_message(parser_type& parser, BodyT&& body = {}) requires(is_response)
-				: base_response{ parser.status_code(), std::move(parser.headers_) }
-				, body_access{ std::forward<BodyT>(body) }
-			{
-			}
-
-			abstract_message(parser_type& parser, BodyT&& body = {}) requires(is_request)
-				: base_request{ parser.method(),
-								std::move(parser.url()),
-								std::move(parser.headers_) }
-				, body_access{ std::forward<BodyT>(body) }
+			abstract_message(abstract_message::parser_type& parser)
+				: base_response{ parser.template status_code_or_method<is_request>(),
+								 std::move(parser.headers_), std::move(parser.url()), std::move(parser.header_) }
 			{
 			}
 
 			abstract_message(
-				http::status status,
-				BodyT&& body = {},
-				http::headers&& headers = {}) requires(is_response)
-				: base_response{ status, std::forward<http::headers>(headers) }
-				, body_access{ std::forward<BodyT>(body) }
+				auto status_or_method,
+				http::headers&& headers = {})
+				: base_response{ status_or_method, std::forward<http::headers>(headers) }
 			{
 			}
 
 			abstract_message(
 				http::method method,
 				std::string&& path,
-				BodyT&& body = {},
 				http::headers&& headers = {}) requires(is_request)
 				: base_request{ method,
 								std::forward<std::string>(path),
 								std::forward<http::headers>(headers) }
-				, body_access{ std::forward<BodyT>(body) }
 			{
 			}
 
@@ -168,73 +157,77 @@ namespace cppcoro::http
 			//            &&base) noexcept {
 			//                static_cast<base_type>(*this) = std::move(base);
 			//            }
+//
+//			bool is_chunked() final
+//			{
+//				if constexpr (ro_chunked_body<body_type> or wo_chunked_body<body_type>)
+//				{
+//					return true;
+//				}
+//				else
+//				{
+//					return false;
+//				}
+//			}
 
-			bool is_chunked() final
-			{
-				if constexpr (ro_chunked_body<body_type> or wo_chunked_body<body_type>)
-				{
-					return true;
-				}
-				else
-				{
-					return false;
-				}
-			}
+			//			task<std::span<std::byte, std::dynamic_extent>> read_body(size_t max_size =
+			//max_body_size) final
+			//			{
+			//				if constexpr (ro_basic_body<BodyT>)
+			//				{
+			//					co_return std::span{ body_access };
+			//				}
+			//				else if constexpr (ro_chunked_body<BodyT>)
+			//				{
+			//					if (not chunk_generator_)
+			//					{
+			//						chunk_generator_ = body_access.read(max_size);
+			//						chunk_generator_it_ = co_await chunk_generator_->begin();
+			//						if (*chunk_generator_it_ != chunk_generator_->end())
+			//						{
+			//							co_return** chunk_generator_it_;
+			//						}
+			//					}
+			//					else if (
+			//						chunk_generator_it_ and
+			//						co_await ++*chunk_generator_it_ != chunk_generator_->end())
+			//					{
+			//						co_return** chunk_generator_it_;
+			//					}
+			//					co_return {};
+			//				}
+			//			}
 
-			task<std::string_view> read_body(size_t max_size = max_body_size) final
-			{
-				if constexpr (ro_basic_body<BodyT>)
-				{
-					co_return std::string_view{ body_access.data(), body_access.size() };
-				}
-				else if constexpr (ro_chunked_body<BodyT>)
-				{
-					if (not chunk_generator_)
-					{
-						chunk_generator_ = body_access.read(max_size);
-						chunk_generator_it_ = co_await chunk_generator_->begin();
-						if (*chunk_generator_it_ != chunk_generator_->end())
-						{
-							co_return** chunk_generator_it_;
-						}
-					}
-					else if (
-						chunk_generator_it_ and
-						co_await ++*chunk_generator_it_ != chunk_generator_->end())
-					{
-						co_return** chunk_generator_it_;
-					}
-					co_return std::string_view{};
-				}
-			}
+			//			task<size_t> write_body(std::span<std::byte, std::dynamic_extent> data)
+			//final
+			//			{
+			//				if constexpr (wo_basic_body<BodyT>)
+			//				{
+			//					auto size =
+			//						std::min(data.size(),
+			//std::as_writable_bytes(this->body_access).size()); 					std::memmove(
+			//						std::as_writable_bytes(this->body_access).data(), data.data(),
+			//size); 					co_return size;
+			//				}
+			//				else if constexpr (wo_chunked_body<BodyT>)
+			//				{
+			//					co_return co_await this->body_access.write(data);
+			//				}
+			//			}
 
-			task<size_t> write_body(std::string_view data) final
+			inline std::string build_header()
 			{
-				if constexpr (wo_basic_body<BodyT>)
+				for (auto& [k, v] : this->headers)
 				{
-					auto size = data.size();
-					this->body_access.append(data);
-					co_return size;
+					spdlog::debug("- {}: {}", k, v);
 				}
-				else if constexpr (wo_chunked_body<BodyT>)
-				{
-					co_return co_await this->body_access.write(data);
-				}
-			}
-
-			inline std::string build_header() final
-			{
-                for (auto& [k, v] : this->headers)
-                {
-                    spdlog::debug("- {}: {}", k, v);
-                }
 				std::string output = _header_base();
 				auto write_header = [&output](const std::string& field, const std::string& value) {
 					output += fmt::format("{}: {}\r\n", field, value);
 				};
 				if constexpr (ro_basic_body<BodyT>)
 				{
-					auto sz = this->body_access.size();
+					auto sz = this->body.size();
 					if (auto node = this->headers.extract("Content-Length"); !node.empty())
 					{
 						node.mapped() = std::to_string(sz);
@@ -279,7 +272,19 @@ namespace cppcoro::http
 			}
 		};
 
+        template<bool response, typename T>
+        struct abstract_span_message : detail::abstract_message<response, T> {
+            abstract_span_message(auto status_or_method, T span, http::headers &&headers = {}) noexcept
+			    : detail::abstract_message<response, T>{status_or_method} {
+				this->body = std::as_writable_bytes(span);
+			}
+		};
+
 	}  // namespace detail
+
+
+	template<detail::is_body BodyT>
+	using abstract_request = detail::abstract_message<false, BodyT>;
 
 	template<detail::is_body BodyT>
 	using abstract_response = detail::abstract_message<true, BodyT>;

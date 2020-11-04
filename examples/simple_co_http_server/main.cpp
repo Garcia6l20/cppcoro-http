@@ -238,22 +238,24 @@ int main(int argc, char** argv)
 	rng::generate(tp, [&service] {
 		return std::thread{ [&service]() mutable { service.process_events(); } };
 	});
+	auto serve = [&]<http::is_config ConfigT>(std::type_identity<ConfigT> &&) -> cppcoro::task<> {
+      simple_co_server<ConfigT> server{ service,
+                                 *server_endpoint,
+                                 std::string_view{ path } };
+      co_await server.serve();
+	};
 	(void)sync_wait(when_all(
 		[&]() -> task<> {
 			auto _ = on_scope_exit([&] { service.stop(); });
 #ifdef CPPCORO_HTTP_MBEDTLS
 			if (with_ssl)
 			{
-				simple_co_server<https_config> server{ service,
-													   *server_endpoint,
-													   std::string_view{ path } };
-				co_await server.serve();
+                co_await serve(std::type_identity<https_config>{});
 			}
 			else
 			{
 #endif
-				simple_co_server server{ service, *server_endpoint, std::string_view{ path } };
-				co_await server.serve();
+                co_await serve(std::type_identity<http_config>{});
 #ifdef CPPCORO_HTTP_MBEDTLS
 			}
 #endif

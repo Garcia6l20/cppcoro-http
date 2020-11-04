@@ -172,7 +172,7 @@ namespace cppcoro::net::ssl
 			std::optional<ssl::certificate> cert,
 			std::optional<ssl::private_key> key)
 			: net::socket{ std::move(sock) }
-			, mode_{mode_}
+			, mode_{ mode_ }
 			, io_service_{ service }
 			, certificate_{ std::move(cert) }
 			, key_{ std::move(key) }
@@ -254,7 +254,7 @@ namespace cppcoro::net::ssl
 		// move ctor (must update callbacks)
 		socket(socket&& other) noexcept
 			: net::socket(std::move(other))
-            , mode_{mode_}
+			, mode_{ other.mode_ }
 			, io_service_{ other.io_service_ }
 			, certificate_{ std::move(other.certificate_) }
 			, key_{ std::move(other.key_) }
@@ -269,6 +269,10 @@ namespace cppcoro::net::ssl
 			// update callbacks
 			_mbedtls_setup_callbacks();
 		}
+		socket() = delete;
+
+		virtual ~socket() noexcept = default;
+
 		/// @endcond
 
 		/** @brief Create ssl server socket (ipv4).
@@ -327,11 +331,6 @@ namespace cppcoro::net::ssl
 			return create<mode::client, true>(io_service, std::move(certificate), std::move(pk));
 		}
 
-		/// @cond
-		// public dtor
-		virtual ~socket() noexcept = default;
-		/// @endcond
-
 		/** @brief Set peer verification mode.
 		 *
 		 * @param mode      The verification mode.
@@ -376,7 +375,7 @@ namespace cppcoro::net::ssl
 				if (result == 0)
 				{
 					if (mode_ == mode::client)
-					    close_recv();
+						close_recv();
 					break;
 				}
 				else if (result == MBEDTLS_ERR_SSL_WANT_READ)

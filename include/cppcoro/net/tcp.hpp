@@ -26,6 +26,7 @@ namespace cppcoro
 			}
 			return sock;
 		}
+
 	}  // namespace net
 	namespace tcp
 	{
@@ -33,6 +34,8 @@ namespace cppcoro
 		class connection
 		{
 		public:
+			using socket_type = SocketT;
+
 			connection(connection&& other) noexcept
 				: sock_{ std::move(other.sock_) }
 				, ct_{ std::move(other.ct_) }
@@ -52,31 +55,50 @@ namespace cppcoro
 				return sock_.remote_endpoint();
 			}
 
-			decltype(auto) receive(auto data)
+			template<typename T>
+			async_generator<std::tuple<size_t, T>> receive()
 			{
-				return sock_.recv(reinterpret_cast<void*>(data.data()), data.size_bytes(), ct_);
+				T data{};
+				size_t received_size = 0;
+				while (not ct_.is_cancellation_requested() and
+					   (received_size = co_await receive(std::span{data})))
+				{
+					co_yield std::make_tuple(received_size, data);
+				}
 			}
 
-			decltype(auto) receive(void* buffer, size_t size)
+            template<typename T, size_t extent = std::dynamic_extent>
+			task<size_t> receive(std::span<T, extent> data)
 			{
-				return sock_.recv(buffer, size, { ct_ });
+                std::size_t totalBytesReceived = 0;
+                std::size_t bytesReceived = 0;
+				auto bytes = std::as_writable_bytes(data);
+                do
+                {
+                    bytesReceived = co_await sock_.recv(
+						bytes.data() + totalBytesReceived, bytes.size() - totalBytesReceived, ct_);
+                    totalBytesReceived += bytesReceived;
+                } while (bytesReceived > 0 && totalBytesReceived < bytes.size());
+                co_return totalBytesReceived;
 			}
 
-			decltype(auto) send(auto data)
+			template<typename T, size_t extent = std::dynamic_extent>
+			task<size_t> send(std::span<T, extent> data)
 			{
-				return sock_.send(
-					reinterpret_cast<const void*>(data.data()), data.size_bytes(), ct_);
-			}
-
-			decltype(auto) send(const void* buffer, size_t size)
-			{
-				return sock_.send(buffer, size, ct_);
+                std::size_t bytesSent = 0;
+				auto bytes = std::as_bytes(data);
+                do
+                {
+                    bytesSent += co_await sock_.send(bytes.data() + bytesSent, bytes.size() - bytesSent, ct_);
+                } while (bytesSent < bytes.size());
+                co_return bytesSent;
 			}
 
 			decltype(auto) disconnect() { return sock_.disconnect(); }
 			decltype(auto) close_send() { return sock_.close_send(); }
 
-			[[nodiscard]] auto& socket() { return sock_; }
+			[[nodiscard]] auto& socket() noexcept { return sock_; }
+			[[nodiscard]] auto token() const noexcept { return ct_;}
 
 		protected:
 			SocketT sock_;
@@ -86,12 +108,12 @@ namespace cppcoro
 		struct ipv4_socket_provider
 		{
 			using listening_socket_type = net::socket;
-            using connection_socket_type = net::socket;
-            static listening_socket_type create_listening_sock(io_service& ios)
+			using connection_socket_type = net::socket;
+			static listening_socket_type create_listening_sock(io_service& ios)
 			{
 				return net::socket::create_tcpv4(ios);
 			}
-            static connection_socket_type create_connection_sock(io_service& ios)
+			static connection_socket_type create_connection_sock(io_service& ios)
 			{
 				return create_listening_sock(ios);
 			}
@@ -101,8 +123,7 @@ namespace cppcoro
 		class server
 		{
 		public:
-			using connection_socket_type =
-				typename SocketProviderT::connection_socket_type;
+			using connection_socket_type = typename SocketProviderT::connection_socket_type;
 			using connection_type = connection<connection_socket_type>;
 
 			server(server&& other) noexcept
@@ -169,8 +190,7 @@ namespace cppcoro
 		class client
 		{
 		public:
-			using connection_type =
-				connection<typename SocketProviderT::connection_socket_type>;
+			using connection_type = connection<typename SocketProviderT::connection_socket_type>;
 			client(client&& other) noexcept
 				: ios_{ other.ios_ }
 				, cs_{ other.cs_ }
@@ -204,4 +224,5 @@ namespace cppcoro
 			cancellation_source cs_;
 		};
 	}  // namespace tcp
+
 }  // namespace cppcoro

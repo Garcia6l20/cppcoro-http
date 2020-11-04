@@ -11,7 +11,7 @@
 
 #include <tuple>
 
-#include <cppcoro/http/route_parameter.hpp>
+#include <cppcoro/router/route_parameter.hpp>
 
 #include <cppcoro/detail/function_traits.hpp>
 #include <cppcoro/detail/type_index.hpp>
@@ -35,8 +35,8 @@ namespace cppcoro::http::detail {
         static void _load_data(data_type &data, const MatcherT &match) {
             if constexpr (type_idx < data_arity) {
                 using ParamT = typename FunctionTraitsT::template arg<type_idx>::clean_type;
-                std::get<type_idx>(data) = route_parameter<ParamT>::load(match.template get<match_idx>());
-                _load_data<type_idx + 1, match_idx + route_parameter<ParamT>::group_count() + 1>(data, match);
+                std::get<type_idx>(data) = router::route_parameter<ParamT>::load(match.template get<match_idx>());
+                _load_data<type_idx + 1, match_idx + router::route_parameter<ParamT>::group_count() + 1>(data, match);
             }
         }
 
@@ -51,8 +51,8 @@ namespace cppcoro::http::detail {
     static constexpr void _load_data(TupleT &data, const MatcherT &match) {
         if constexpr (type_idx < max) {
             using ParamT = std::decay_t<decltype(std::get<type_idx>(data))>;
-            std::get<type_idx>(data) = route_parameter<ParamT>::load(match.template get<match_idx>());
-            _load_data<type_idx + 1, match_idx + route_parameter<ParamT>::group_count() + 1, max>(data, match);
+            std::get<type_idx>(data) = router::route_parameter<ParamT>::load(match.template get<match_idx>());
+            _load_data<type_idx + 1, match_idx + router::route_parameter<ParamT>::group_count() + 1, max>(data, match);
         }
     }
 

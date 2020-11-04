@@ -8,7 +8,7 @@
 
 #include <ctll.hpp>
 
-namespace cppcoro::http
+namespace cppcoro::router
 {
 	template<typename T>
 	struct route_parameter;

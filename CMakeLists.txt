@@ -4,16 +4,27 @@ project(cppcoro_http)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
-  message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
-  file(DOWNLOAD "https://github.com/conan-io/cmake-conan/raw/v0.15/conan.cmake"
-    "${CMAKE_BINARY_DIR}/conan.cmake")
+if(NOT MELT_PATH)
+  if(NOT EXISTS "${CMAKE_BINARY_DIR}/MeltingPot.cmake")
+    message(STATUS "Downloading MeltingPot.cmake from https://github.com/Garcia6l20/MeltingPot")
+    file(DOWNLOAD "https://raw.githubusercontent.com/Garcia6l20/MeltingPot/v0.1.x/dist/MeltingPot.cmake" "${CMAKE_BINARY_DIR}/MeltingPot.cmake")
+  endif()
+  include(${CMAKE_BINARY_DIR}/MeltingPot.cmake)
+else()
+  add_subdirectory(${MELT_PATH} ${CMAKE_BINARY_DIR}/Melt)
 endif()
-include("${CMAKE_BINARY_DIR}/conan.cmake")
+
+#if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
+#  message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
+#  file(DOWNLOAD "https://github.com/conan-io/cmake-conan/raw/v0.15/conan.cmake"
+#    "${CMAKE_BINARY_DIR}/conan.cmake")
+#endif()
+#include("${CMAKE_BINARY_DIR}/conan.cmake")
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 
 include(FetchContent)
+include(CPPCoroUtils)
 
 #
 # cppcoro
@@ -54,13 +65,12 @@ add_library(http_parser STATIC
 target_include_directories(http_parser PUBLIC ${_fetch_http_parser_SOURCE_DIR}/)
 add_library(http_parser::http_parser ALIAS http_parser)
 
-conan_cmake_run(
+conan_requires(
   REQUIRES
     fmt/7.0.3
     spdlog/1.8.0
     ctre/2.8.2
     nlohmann_json/3.9.1
-  BASIC_SETUP CMAKE_TARGETS
   BUILD outdated)
 
 #
@@ -101,3 +111,5 @@ enable_testing()
 if (BUILD_TESTING)
   add_subdirectory(tests)
 endif()
+
+conan_package()

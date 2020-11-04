@@ -6,7 +6,9 @@
 #include <charconv>
 #include <ctre.hpp>
 #include <fmt/format.h>
+#include <optional>
 #include <string_view>
+#include <cppcoro/net/ip_endpoint.hpp>
 
 namespace cppcoro::net
 {
@@ -21,6 +23,15 @@ namespace cppcoro::net
         std::string_view parameters{};
 
 		uri(std::string input) noexcept;
+
+		[[nodiscard]] std::optional<net::ip_endpoint> endpoint() const {
+			return net::ip_endpoint::from_string(fmt::format("{}:{}", host, port));
+		}
+
+		[[nodiscard]] bool uses_ssl() const noexcept {
+            static std::vector ssl_schemes{"https", "wss"};
+			return std::ranges::find(ssl_schemes, scheme) != ssl_schemes.end();
+		}
 
 		static auto escape(std::string_view input)
 		{

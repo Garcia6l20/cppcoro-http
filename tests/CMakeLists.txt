@@ -11,9 +11,14 @@ target_link_libraries(cppcoro-http-test-main PUBLIC cppcoro::http CONAN_PKG::cat
 
 macro(basic_test _filename)
   get_filename_component(_target ${_filename} NAME_WE)
+  get_filename_component(_target_dir ${_filename} DIRECTORY)
+  if (NOT "${_target_dir}" STREQUAL "")
+    set(_target ${_target_dir}_${_target})
+  endif()
   add_executable(${_target} ${_filename})
   target_link_libraries(${_target} PRIVATE cppcoro-http-test-main)
   catch_discover_tests(${_target})
+  set_target_properties(${_target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
 endmacro()
 
 macro(add_tests)
@@ -25,10 +30,13 @@ endmacro()
 
 add_tests(
   http/test_requests.cpp
+  http/test_router.cpp
   http/test_route_controller.cpp
   http/test_chunked.cpp
   http/test_uri.cpp
   net/test_server.cpp
+  net/test_any_socket.cpp
+  router/test_router.cpp
   )
 
 add_subdirectory(web_socket)

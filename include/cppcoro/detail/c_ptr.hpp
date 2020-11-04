@@ -28,6 +28,11 @@ namespace cppcoro::detail {
 	 */
 	template <typename T, auto init_func, auto free_func>
 	struct c_shared_ptr : std::shared_ptr<T> {
+
+        c_shared_ptr(c_shared_ptr&& other) = default;
+        c_shared_ptr(const c_shared_ptr& other) = default;
+		virtual ~c_shared_ptr() = default;
+
 		template <typename...ArgsT>
         explicit c_shared_ptr(T *ptr, ArgsT...args) noexcept : std::shared_ptr<T>{ptr, c_deleter<T, free_func>{}} {
 			init_func(ptr, std::forward<ArgsT>(args)...);
@@ -47,6 +52,9 @@ namespace cppcoro::detail {
      */
     template <typename T, auto init_func, auto free_func>
     struct c_unique_ptr : std::unique_ptr<T, c_deleter<T, free_func>> {
+//		using std::unique_ptr<T, c_deleter<T, free_func>>::unique_ptr;
+        using std::unique_ptr<T, c_deleter<T, free_func>>::operator=;
+
         template <typename...ArgsT>
         explicit c_unique_ptr(T *ptr, ArgsT...args) noexcept : std::unique_ptr<T, c_deleter<T, free_func>>{ptr} {
             init_func(ptr, std::forward<ArgsT>(args)...);

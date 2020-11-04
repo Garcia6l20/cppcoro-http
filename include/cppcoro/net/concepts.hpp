@@ -4,11 +4,12 @@
 #pragma once
 
 #include <cppcoro/cancellation_token.hpp>
-#include <cppcoro/io_service.hpp>
 #include <cppcoro/concepts.hpp>
+#include <cppcoro/io_service.hpp>
 #include <cppcoro/net/ip_endpoint.hpp>
 
-namespace cppcoro {
+namespace cppcoro
+{
 	class io_service;
 }
 
@@ -34,6 +35,14 @@ namespace cppcoro::net
         { v.accept(std::declval<T&>(), cancellation_token{}) } -> awaitable;
 //        { v.recv(std::declval<void*>(), size_t{}, cancellation_token{}) } -> awaitable<size_t>;
 //        { v.send(std::declval<const void*>(), size_t{}, cancellation_token{}) } -> awaitable<size_t>;
+    };
+
+    template<typename T>
+    concept is_connection = requires(T obj)
+    {
+        typename T::socket_type;
+        { obj.socket() } -> is_socket;
+        { obj.token() } -> std::same_as<cancellation_token>;
     };
 
     template <typename T>
