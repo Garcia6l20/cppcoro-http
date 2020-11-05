@@ -55,18 +55,6 @@ namespace cppcoro
 				return sock_.remote_endpoint();
 			}
 
-			template<typename T>
-			async_generator<std::tuple<size_t, T>> receive()
-			{
-				T data{};
-				size_t received_size = 0;
-				while (not ct_.is_cancellation_requested() and
-					   (received_size = co_await receive(std::span{data})))
-				{
-					co_yield std::make_tuple(received_size, data);
-				}
-			}
-
             template<typename T, size_t extent = std::dynamic_extent>
 			task<size_t> receive(std::span<T, extent> data)
 			{

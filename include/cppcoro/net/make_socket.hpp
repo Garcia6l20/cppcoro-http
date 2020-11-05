@@ -4,6 +4,12 @@
 #include <cppcoro/detail/is_specialization.hpp>
 #include <cppcoro/detail/tuple_utils.hpp>
 
+#include <cppcoro/net/socket.hpp>
+
+#ifdef CPPCORO_HTTP_MBEDTLS
+#include <cppcoro/ssl/socket.hpp>
+#endif
+
 namespace cppcoro::net
 {
 	enum class address_familly

@@ -374,8 +374,8 @@ namespace cppcoro::net::ssl
 				auto result = mbedtls_ssl_handshake(ssl_context_.get());
 				if (result == 0)
 				{
-					if (mode_ == mode::client)
-						close_recv();
+//					if (mode_ == mode::client)
+//						close_recv();
 					break;
 				}
 				else if (result == MBEDTLS_ERR_SSL_WANT_READ)
@@ -525,16 +525,13 @@ namespace cppcoro::net::ssl
 		{
 			assert(cert && pk);
 		}
-		std::optional<net::socket> sock;
 		if constexpr (tcp_v6)
 		{
-			sock = socket::create_tcpv6(io_service);
+            return socket(io_service, socket::create_tcpv6(io_service), mode_, std::move(cert), std::move(pk));
 		}
 		else
 		{
-			sock = socket::create_tcpv4(io_service);
+            return socket(io_service, socket::create_tcpv4(io_service), mode_, std::move(cert), std::move(pk));
 		}
-		assert(sock);
-		return socket(io_service, std::move(*sock), mode_, std::move(cert), std::move(pk));
 	}
 }  // namespace cppcoro::net::ssl

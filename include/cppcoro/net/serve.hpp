@@ -8,6 +8,10 @@
 #include <cppcoro/task.hpp>
 #include <cppcoro/detail/function_traits.hpp>
 
+#ifdef CPPCORO_HTTP_MBEDTLS
+#include <cppcoro/ssl/concepts.hpp>
+#endif
+
 namespace cppcoro::net
 {
 	template<typename HandlerT, typename... ArgsT>
@@ -103,10 +107,12 @@ namespace cppcoro::net
 				auto conn_socket = make_socket();
 				co_await accept(conn_socket);
 				scope.spawn([make_connection](auto sock, auto handler, std::reference_wrapper<args_t> args) -> task<> {
+#ifdef CPPCORO_HTTP_MBEDTLS
 					if constexpr (ssl::is_socket<socket_type>)
 					{
 						co_await sock.encrypt();
 					}
+#endif
 					co_await std::apply(
 						handler,
 						std::tuple_cat(
