@@ -96,7 +96,7 @@ namespace cppcoro::net
 	template<socket_mode mode>
 	struct make_socket_t<mode, net::ssl::socket> : make_socket_t<mode>
 	{
-		decltype(auto) apply_args(is_socket auto&& socket, auto args) noexcept
+		void apply_args(is_socket auto& socket, auto args) noexcept
 		{
 			using args_t = decltype(args);
 			if constexpr (cppcoro::detail::in_tuple<args_t, ssl_args::host_name>)
@@ -111,7 +111,6 @@ namespace cppcoro::net
 			{
 				socket.set_peer_verify_mode(std::get<ssl::peer_verify_mode>(args));
 			}
-			return std::forward<decltype(socket)>(socket);
 		}
 
 		template<typename... Args>
@@ -133,12 +132,12 @@ namespace cppcoro::net
 						cppcoro::detail::in_tuple<args_t, ssl::private_key>, "missing private key");
 					if (this->proto == socket_proto::tcp and this->af == address_familly::ipv6)
 					{
-						return apply_args(
-							net::ssl::socket::create_server_v6(
-								service,
-								std::move(std::get<ssl::certificate>(args)),
-								std::move(std::get<ssl::private_key>(args))),
-							std::move(args));
+                        auto sock = net::ssl::socket::create_server_v6(
+                            service,
+                            std::move(std::get<ssl::certificate>(args)),
+                            std::move(std::get<ssl::private_key>(args)));
+                        apply_args(sock, std::move(args));
+						return sock;
 					}
 					else if (this->proto == socket_proto::tcp and this->af == address_familly::ipv4)
 					{
@@ -146,7 +145,8 @@ namespace cppcoro::net
 							service,
 							std::move(std::get<ssl::certificate>(args)),
 							std::move(std::get<ssl::private_key>(args)));
-						return apply_args(std::move(sock), std::move(args));
+                        apply_args(sock, std::move(args));
+						return sock;
 					}
 				}
 				else if constexpr (mode == socket_mode::client)
@@ -157,17 +157,19 @@ namespace cppcoro::net
 							cppcoro::detail::in_tuple<args_t, ssl::certificate> and
 							cppcoro::detail::in_tuple<args_t, ssl::private_key>)
 						{
-							return apply_args(
-								net::ssl::socket::create_client_v6(
-									service,
-									std::get<ssl::certificate>(args),
-									std::get<ssl::private_key>(args)),
-								std::move(args));
+							auto sock = net::ssl::socket::create_client_v6(
+                                service,
+                                std::move(std::get<ssl::certificate>(args)),
+                                std::move(std::get<ssl::private_key>(args)));
+                            apply_args(sock, std::move(args));
+							return sock;
 						}
 						else
 						{
-							return apply_args(
-								net::ssl::socket::create_client_v6(service), std::move(args));
+                            auto sock = net::ssl::socket::create_client_v6(
+                                service);
+                            apply_args(sock, std::move(args));
+                            return sock;
 						}
 					}
 					else if (this->proto == socket_proto::tcp and this->af == address_familly::ipv4)
@@ -176,15 +178,19 @@ namespace cppcoro::net
 							cppcoro::detail::in_tuple<args_t, ssl::certificate> and
 							cppcoro::detail::in_tuple<args_t, ssl::private_key>)
 						{
-							return apply_args(net::ssl::socket::create_client(
-								service,
-								std::get<ssl::certificate>(args),
-								std::get<ssl::private_key>(args)));
+                            auto sock = net::ssl::socket::create_client(
+                                service,
+                                std::move(std::get<ssl::certificate>(args)),
+                                std::move(std::get<ssl::private_key>(args)));
+                            apply_args(sock, std::move(args));
+                            return sock;
 						}
 						else
 						{
-							return apply_args(
-								net::ssl::socket::create_client(service), std::move(args));
+                            auto sock = net::ssl::socket::create_client(
+                                service);
+                            apply_args(sock, std::move(args));
+                            return sock;
 						}
 					}
 				}
