@@ -28,19 +28,19 @@ macro(add_tests)
   endforeach()
 endmacro()
 
-add_tests(
-  http/test_requests.cpp
-  http/test_router.cpp
-  http/test_route_controller.cpp
-  http/test_chunked.cpp
-  http/test_uri.cpp
-  net/test_server.cpp
-  net/test_any_socket.cpp
-  router/test_router.cpp
-  )
-
-add_subdirectory(web_socket)
-
 if(CPPCORO_HTTP_MBEDTLS)
   add_tests(ssl/test_ssl_socket.cpp)
 endif()
+
+add_tests(
+  router/test_router.cpp
+  net/test_server.cpp
+  http/test_server.cpp
+#  http/test_requests.cpp
+#  http/test_router.cpp
+#  http/test_route_controller.cpp
+#  http/test_chunked.cpp
+#  http/test_uri.cpp
+#  web_socket/test_server.cpp
+  )
+

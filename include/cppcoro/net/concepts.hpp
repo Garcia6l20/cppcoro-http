@@ -3,26 +3,31 @@
  */
 #pragma once
 
-#include <cppcoro/cancellation_token.hpp>
 #include <cppcoro/concepts.hpp>
-#include <cppcoro/io_service.hpp>
-#include <cppcoro/net/ip_endpoint.hpp>
 
 namespace cppcoro
 {
 	class io_service;
+    class cancellation_token;
 }
 
 namespace cppcoro::net
 {
+	template <typename T>
+	struct connection_message;
+
+    class ip_endpoint;
+
+	enum class connection_mode;
+
 	// clang-format off
 
 	template<typename T>
 	concept is_socket = requires(T v)
 	{
         { v.listen() };
-        { v.bind(ip_endpoint{}) };
-        { v.connect(ip_endpoint{}) } -> awaitable;
+        { v.bind(std::declval<ip_endpoint>()) };
+        { v.connect(std::declval<ip_endpoint>()) } -> awaitable;
         { v.accept(std::declval<T&>()) } -> awaitable;
 		{ v.recv(std::declval<void*>(), size_t{}) } -> awaitable<size_t>;
 		{ v.send(std::declval<const void*>(), size_t{}) } -> awaitable<size_t>;
@@ -31,8 +36,8 @@ namespace cppcoro::net
     template<typename T>
     concept is_cancelable_socket = is_socket<T> and requires(T v)
     {
-        { v.connect(ip_endpoint{}, cancellation_token{}) } -> awaitable;
-        { v.accept(std::declval<T&>(), cancellation_token{}) } -> awaitable;
+        { v.connect(std::declval<ip_endpoint>(), std::declval<cancellation_token>()) } -> awaitable;
+        { v.accept(std::declval<T&>(), std::declval<cancellation_token>()) } -> awaitable;
 //        { v.recv(std::declval<void*>(), size_t{}, cancellation_token{}) } -> awaitable<size_t>;
 //        { v.send(std::declval<const void*>(), size_t{}, cancellation_token{}) } -> awaitable<size_t>;
     };
@@ -41,6 +46,8 @@ namespace cppcoro::net
     concept is_connection = requires(T obj)
     {
         typename T::socket_type;
+        typename T::template message_type<>;
+        { T::connection_mode } -> std::convertible_to<net::connection_mode>;
         { obj.socket() } -> is_socket;
         { obj.token() } -> std::same_as<cancellation_token>;
     };

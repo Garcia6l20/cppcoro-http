@@ -512,8 +512,6 @@ namespace cppcoro::net::ssl
 			}
 		}
 	};
-	static_assert(net::is_socket<ssl::socket>);
-	static_assert(net::is_cancelable_socket<ssl::socket>);
 
 	template<ssl::socket::mode mode_, bool tcp_v6>
 	ssl::socket ssl::socket::create(

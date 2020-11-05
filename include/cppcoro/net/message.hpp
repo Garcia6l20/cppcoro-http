@@ -2,6 +2,7 @@
 
 #include <cppcoro/net/concepts.hpp>
 #include <cppcoro/task.hpp>
+#include <cppcoro/cancellation_token.hpp>
 
 #include <span>
 
@@ -15,7 +16,7 @@ namespace cppcoro::net
 		incoming,
 		outgoing
 	};
-	template<is_socket SocketT, message_direction direction, typename HeaderT = void>
+	template<is_socket SocketT, message_direction direction>
 	class message
 	{
 		using bytes_type = std::conditional_t<
@@ -56,14 +57,7 @@ namespace cppcoro::net
 				size = bytes_.size();
 			}
             assert(size <= bytes_.size());
-
-			std::size_t bytesSent = 0;
-			do
-			{
-				bytesSent += co_await socket_.send(
-					bytes_.data() + bytesSent, size - bytesSent, ct_);
-			} while (bytesSent < size);
-			co_return bytesSent;
+            return _send(std::span{bytes_.data(), size});
 		}
 
 		task<size_t> receive(size_t size = std::numeric_limits<size_t>::max()) requires(direction == message_direction::incoming)
@@ -72,19 +66,32 @@ namespace cppcoro::net
                 size = bytes_.size();
             }
 			assert(size <= bytes_.size());
-
-			std::size_t totalBytesReceived = 0;
-			std::size_t bytesReceived = 0;
-			do
-			{
-				bytesReceived = co_await socket_.recv(
-					bytes_.data() + totalBytesReceived, size - totalBytesReceived, ct_);
-				totalBytesReceived += bytesReceived;
-			} while (bytesReceived > 0 && totalBytesReceived < size);
-			co_return totalBytesReceived;
+			return _send(std::span{bytes_.data(), size});
 		}
 
-	private:
+	protected:
+		task<size_t> _send(readable_bytes bytes) {
+            std::size_t bytesSent = 0;
+            do
+            {
+                bytesSent += co_await socket_.send(
+                    bytes.data() + bytesSent, bytes.size_bytes() - bytesSent, ct_);
+            } while (bytesSent < bytes.size_bytes());
+            co_return bytesSent;
+		}
+
+        task<size_t> _receive(writeable_bytes bytes) {
+            std::size_t totalBytesReceived = 0;
+            std::size_t bytesReceived;
+            do
+            {
+                bytesReceived = co_await socket_.recv(
+                    bytes.data() + totalBytesReceived, bytes.size_bytes() - totalBytesReceived, ct_);
+                totalBytesReceived += bytesReceived;
+            } while (bytesReceived > 0 && totalBytesReceived < bytes.size_bytes());
+            co_return totalBytesReceived;
+		}
+
 		SocketT& socket_;
 		cancellation_token ct_;
 		bytes_type bytes_;
@@ -94,7 +101,7 @@ namespace cppcoro::net
 	auto make_rx_message(
 		ConnectionTypeT& connection, auto buffer, ArgsT&&... args)
 	{
-		return net::message<typename ConnectionTypeT::socket_type, message_direction::incoming>{
+		return typename ConnectionTypeT::template message_type<message_direction::incoming>{
 			connection.socket(), std::as_writable_bytes(buffer), connection.token()
 		};
 	}
@@ -102,7 +109,7 @@ namespace cppcoro::net
 	auto make_tx_message(
 		ConnectionTypeT& connection, auto buffer, ArgsT&&... args)
 	{
-		return net::message<typename ConnectionTypeT::socket_type, message_direction::outgoing>{
+		return typename ConnectionTypeT::template message_type<message_direction::outgoing>{
 			connection.socket(), std::as_bytes(buffer), connection.token()
 		};
 	}

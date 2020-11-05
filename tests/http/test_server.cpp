@@ -2,7 +2,10 @@
 
 #include <fmt/format.h>
 
+#include <cppcoro/async_scope.hpp>
 #include <cppcoro/fmt/span.hpp>
+#include <cppcoro/http/connection.hpp>
+#include <cppcoro/io_service.hpp>
 #include <cppcoro/net/connect.hpp>
 #include <cppcoro/net/message.hpp>
 #include <cppcoro/net/serve.hpp>
@@ -13,15 +16,18 @@
 
 using namespace cppcoro;
 
-#if CPPCORO_HTTP_HAS_SSL
-#include "../ssl/cert.hpp"
+#ifdef CPPCORO_HTTP_MBEDTLS
+#	include "../ssl/cert.hpp"
 #endif
 
+#include <cppcoro/net/make_socket.hpp>
+#include <cppcoro/detail/function_traits.hpp>
+
 using test_types = std::tuple<
-	std::tuple<tcp::server_connection<net::socket>, tcp::client_connection<net::socket>>
+	std::tuple<http::server_connection<net::socket>, http::client_connection<net::socket>>
 #if CPPCORO_HTTP_HAS_SSL
 	,
-	std::tuple<tcp::server_connection<net::ssl::socket>, tcp::client_connection<net::ssl::socket>>
+	std::tuple<http::server_connection<net::ssl::socket>, http::client_connection<net::ssl::socket>>
 #endif
 	>;
 
@@ -34,6 +40,7 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 	using server_connection = std::tuple_element_t<0, TestType>;
 	using client_connection = std::tuple_element_t<1, TestType>;
 
+	http::logging::log_level = spdlog::level::debug;
 	spdlog::set_level(spdlog::level::debug);
 
 	io_service ioSvc{ 512 };
@@ -47,7 +54,7 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 			ioSvc,
 			endpoint,
 			std::ref(source)
-#if CPPCORO_HTTP_HAS_SSL
+#ifdef CPPCORO_HTTP_MBEDTLS
 				,
 			ssl_args::verify_flags{ ssl_args::verify_flags::allow_untrusted },
 			ssl_args::peer_verify_mode { ssl_args::peer_verify_mode::required }
@@ -58,8 +65,11 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 			std::uint8_t buffer[100];
 			std::uint64_t total_bytes_received = 0;
 			std::size_t bytes_received;
-			auto message = net::make_rx_message(con, std::span{ buffer });
-			while ((bytes_received = co_await message.receive()) != 0)
+			auto rx = net::make_rx_message(con, std::span{ buffer });
+
+			auto header = co_await rx.receive_header();
+
+			while ((bytes_received = co_await rx.receive()) != 0)
 			{
 				spdlog::debug("client received: {}", std::span{ buffer, bytes_received });
 				for (std::size_t i = 0; i < bytes_received; ++i)
@@ -70,18 +80,27 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 				}
 				total_bytes_received += bytes_received;
 			}
+            CHECK(*header.content_length == 1000);
 			CHECK(total_bytes_received == 1000);
 		};
 		auto send = [&]() -> task<> {
 			std::uint8_t buffer[100]{};
-			auto message = net::make_tx_message(con, std::span{ buffer });
+			auto tx = net::make_tx_message(con, std::span{ buffer }, http::method::post);
+
+			auto tx_header = tx.make_header(http::method::post);
+
+			tx_header.method = http::method::post;
+			tx_header.content_length = sizeof(buffer) * 1000;
+
+            co_await tx.send(std::move(tx_header));
+
 			for (std::uint64_t i = 0; i < 1000; i += sizeof(buffer))
 			{
 				for (std::size_t j = 0; j < sizeof(buffer); ++j)
 				{
 					buffer[j] = 'a' + ((i + j) % 26);
 				}
-				auto sent_bytes = co_await message.send();
+				auto sent_bytes = co_await tx.send();
 				spdlog::info("client sent {} bytes", sent_bytes);
 				spdlog::debug("client sent: {}", std::span{ buffer, sent_bytes });
 			}
@@ -105,6 +124,14 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 						char buffer[64]{};
 						auto rx = net::make_rx_message(connection, std::span{ buffer });
 						auto tx = net::make_tx_message(connection, std::span{ buffer });
+
+						auto rx_header = co_await rx.receive_header();
+                        auto tx_header = tx.make_header(http::status::HTTP_STATUS_OK);
+
+                        tx_header.content_length = rx_header.content_length;
+
+						co_await tx.send(std::move(tx_header));
+
 						while ((bytes_received = co_await rx.receive()) != 0)
 						{
 							spdlog::info("server received {} bytes", bytes_received);
@@ -127,7 +154,7 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 					co_await connection.disconnect();
 				},
 				std::ref(source)
-#if CPPCORO_HTTP_HAS_SSL
+#ifdef CPPCORO_HTTP_MBEDTLS
 					,
 				net::ssl::certificate{ cert },
 				net::ssl::private_key{ key },

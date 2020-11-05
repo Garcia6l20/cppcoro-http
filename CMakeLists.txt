@@ -41,7 +41,9 @@ add_library(cppcoro_http_options INTERFACE)
 option(CPPCORO_HTTP_MBEDTLS "Enable SSL support with mbedTLS" OFF)
 if(CPPCORO_HTTP_MBEDTLS)
   find_package(mbedtls REQUIRED)
-  target_compile_definitions(cppcoro_http_options INTERFACE -DCPPCORO_HTTP_MBEDTLS=1)
+  target_compile_definitions(cppcoro_http_options INTERFACE -DCPPCORO_HTTP_MBEDTLS=1 -DCPPCORO_HTTP_HAS_SSL=1)
+else()
+  target_compile_definitions(cppcoro_http_options INTERFACE -DCPPCORO_HTTP_HAS_SSL=0)
 endif()
 
 #

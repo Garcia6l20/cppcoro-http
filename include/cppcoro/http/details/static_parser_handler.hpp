@@ -11,10 +11,22 @@
 #include <memory>
 #include <span>
 
+namespace cppcoro::net
+{
+	enum class message_direction;
+	enum class connection_mode;
+}  // namespace cppcoro::net
+
 namespace cppcoro::http
 {
 	using byte_span = std::span<std::byte, std::dynamic_extent>;
-}
+
+	template<typename, bool>
+	struct message_header;
+
+	template<net::is_socket, net::message_direction, net::connection_mode>
+	struct message;
+}  // namespace cppcoro::http
 
 namespace cppcoro::http::detail
 {
@@ -98,56 +110,56 @@ namespace cppcoro::http::detail
 
 		operator bool() const { return state_ == status::on_message_complete; }
 
-		const void parse(const char* data, size_t len)
+		template<typename T, size_t extent = std::dynamic_extent>
+		bool parse(std::span<T, extent> data)
 		{
 			body_ = {};
-			const auto count = execute_parser(data, len);
-			if (count < len)
+			const auto count = execute_parser(
+				reinterpret_cast<const char*>(std::as_bytes(data).data()), data.size_bytes());
+			if (count < data.size_bytes())
 			{
 				throw std::runtime_error{ fmt::format(
 					FMT_STRING("parse error: {}"),
 					http_errno_description(detail::http_errno(parser_->http_errno))) };
 			}
-			//            if (!parser_->upgrade &&
-			//                parser_->status != detail::s_message_done)
-			//                return false;
+			return *this;
 		}
 
-		const void parse(std::string_view input) { parse(input.data(), input.size()); }
+		bool parse(std::string_view input) { return parse(input.data(), input.size()); }
 
 		auto method() const { return static_cast<http::method>(parser_->method); }
 		auto status_code() const { return static_cast<http::status>(parser_->status_code); }
-		template<bool status>
+
 		auto status_code_or_method() const
 		{
-			if constexpr (status)
+			if constexpr (is_request)
 			{
-				return status_code();
+                return method();
 			}
 			else
 			{
-				return method();
+                return status_code();
 			}
 		}
 
-//		template<typename MessageT>
-//		task<> load(MessageT& message)
-//		{
-//			static_assert(is_request == MessageT::is_request);
-//			if constexpr (is_request)
-//			{
-//				message.method = method();
-//				message.path = url_;
-//			}
-//			else
-//			{
-//				message.status = status_code();
-//			}
-//			if (!this->body_.empty())
-//			{
-//				co_await message.write_body(body_);
-//			}
-//		}
+		//		template<typename MessageT>
+		//		task<> load(MessageT& message)
+		//		{
+		//			static_assert(is_request == MessageT::is_request);
+		//			if constexpr (is_request)
+		//			{
+		//				message.method = method();
+		//				message.path = url_;
+		//			}
+		//			else
+		//			{
+		//				message.status = status_code();
+		//			}
+		//			if (!this->body_.empty())
+		//			{
+		//				co_await message.write_body(body_);
+		//			}
+		//		}
 
 		[[nodiscard]] auto body() const { return body_; }
 
@@ -307,5 +319,11 @@ namespace cppcoro::http::detail
 
 		template<bool _is_response, is_body BodyT>
 		friend struct abstract_message;
+
+		template<net::is_socket, net::message_direction, net::connection_mode>
+		friend struct cppcoro::http::message;
+
+		template<typename, bool>
+		friend struct cppcoro::http::message_header;
 	};
 }  // namespace cppcoro::http::detail
