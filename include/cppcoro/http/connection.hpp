@@ -42,7 +42,9 @@ namespace cppcoro::http
 		message_header(parser_t& parser)
 		{
 			_method_or_status = parser.status_code_or_method();
+            content_length = parser.content_length(); // before moving headers
 			headers = std::move(parser.headers_);
+
 			if constexpr (is_request)
 			{
 				path = parser.url();
@@ -58,7 +60,7 @@ namespace cppcoro::http
 
 		http::headers headers;
 
-		[[nodiscard]] bool chunked() const noexcept { return content_length.has_value(); }
+		[[nodiscard]] bool chunked() const noexcept { return not content_length.has_value(); }
 
 		inline auto _header_base()
 		{
@@ -91,7 +93,11 @@ namespace cppcoro::http
 			auto write_header = [&output](const std::string& field, const std::string& value) {
 				output += fmt::format("{}: {}\r\n", field, value);
 			};
-			if (not chunked())
+			if (chunked())
+			{
+				this->headers.emplace("Transfer-Encoding", "chunked");
+			}
+			else
 			{
 				std::array<char, 64> content_length_str{};
 				auto [ptr, error] = std::to_chars(
@@ -99,10 +105,6 @@ namespace cppcoro::http
 				assert(error == std::errc{});
 				this->headers.emplace(
 					"Content-Length", std::string_view{ content_length_str.data(), ptr });
-			}
-			else
-			{
-				this->headers.emplace("Transfer-Encoding", "chunked");
 			}
 			for (auto& [field, value] : this->headers)
 			{
@@ -114,11 +116,11 @@ namespace cppcoro::http
 	};
 
 	template<net::is_socket SocketT, net::message_direction direction, net::connection_mode mode>
-	struct message : net::message<SocketT, direction>
+	struct message : protected net::message<SocketT, direction>
 	{
 		using base = net::message<SocketT, direction>;
 		using base::base;
-		using base::receive;
+		//		using base::receive;
 		using base::send;
 
 		static constexpr bool is_request = (mode == net::connection_mode::server and
@@ -143,20 +145,45 @@ namespace cppcoro::http
 
 		task<header_type> receive_header()
 		{
-			auto bytes_received = co_await this->receive();
-			parser_.init_parser();  // TODO remove this ugly thing
-			parser_.parse(std::span{ this->bytes_.data(), bytes_received });
+			std::optional<size_t> content_length{};
+			do
+			{
+                auto bytes_received = co_await base::receive();
+				parser_.parse(std::span{ this->bytes_.data(), bytes_received });
+			} while (not parser_.header_done());
 			co_return header_type{ parser_ };
+		}
+
+		task<net::readable_bytes> receive()
+		{
+			if (parser_.has_body())
+			{
+				co_return parser_.body();
+			}
+			else
+			{
+				auto bytes_received = co_await base::receive();
+				parser_.parse(std::span{ this->bytes_.data(), bytes_received });
+				if (parser_.has_body())
+				{
+					co_return parser_.body();
+				}
+				else
+				{
+					co_return net::readable_bytes{};
+				}
+			}
 		}
 
 		task<size_t> send(header_type&& header)
 		{
-			std::string data = std::forward<header_type>(header).build();
-			return this->_send(std::as_writable_bytes(std::span{ data }));
+			header_data_ = std::forward<header_type>(header).build();
+			return base::send(std::as_writable_bytes(std::span{ header_data_ }));
 		}
 
 	private:
 		parser_t parser_;
+		std::string header_data_;
 	};
 
 	template<

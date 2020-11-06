@@ -31,7 +31,7 @@ struct ssl_test
 
 TEMPLATE_TEST_CASE(
 	"echo tcp server",
-	"[cppcoro-http][server][echo]",
+	"[cppcoro-http][tcp-server][echo]",
 	base_test
 #if CPPCORO_HTTP_HAS_SSL
 	,

@@ -57,7 +57,7 @@ namespace cppcoro::net
 				size = bytes_.size();
 			}
             assert(size <= bytes_.size());
-            return _send(std::span{bytes_.data(), size});
+            return send(std::span{bytes_.data(), size});
 		}
 
 		task<size_t> receive(size_t size = std::numeric_limits<size_t>::max()) requires(direction == message_direction::incoming)
@@ -66,11 +66,10 @@ namespace cppcoro::net
                 size = bytes_.size();
             }
 			assert(size <= bytes_.size());
-			return _receive(std::span{bytes_.data(), size});
+			return receive(std::span{bytes_.data(), size});
 		}
 
-	protected:
-		task<size_t> _send(readable_bytes bytes) {
+        task<size_t> send(readable_bytes bytes) {
             std::size_t bytesSent = 0;
             do
             {
@@ -78,9 +77,9 @@ namespace cppcoro::net
                     bytes.data() + bytesSent, bytes.size_bytes() - bytesSent, ct_);
             } while (bytesSent < bytes.size_bytes());
             co_return bytesSent;
-		}
+        }
 
-        task<size_t> _receive(writeable_bytes bytes) {
+        task<size_t> receive(writeable_bytes bytes) {
             std::size_t totalBytesReceived = 0;
             std::size_t bytesReceived;
             do
@@ -88,7 +87,6 @@ namespace cppcoro::net
                 bytesReceived = co_await socket_.recv(
                     bytes.data() + totalBytesReceived, bytes.size_bytes() - totalBytesReceived, ct_);
                 totalBytesReceived += bytesReceived;
-                spdlog::debug("client bytesReceived: {}", bytesReceived);
             } while (bytesReceived > 0 && totalBytesReceived < bytes.size_bytes());
             co_return totalBytesReceived;
 		}

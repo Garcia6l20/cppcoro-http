@@ -4,6 +4,7 @@
 #include <cppcoro/http/http.hpp>
 #include <cppcoro/net/uri.hpp>
 #include <cppcoro/task.hpp>
+#include <cppcoro/detail/c_ptr.hpp>
 
 #include <fmt/format.h>
 
@@ -30,6 +31,17 @@ namespace cppcoro::http
 
 namespace cppcoro::http::detail
 {
+	template<detail::http_parser_type type, typename T>
+	void init_parser(detail::http_parser* parser, T* owner)
+	{
+		detail::http_parser_init(parser, type);
+		parser->data = owner;
+	}
+
+	template<detail::http_parser_type type, typename OwnerT>
+	using c_parser_ptr =
+		cppcoro::detail::c_unique_ptr<detail::http_parser, init_parser<type, OwnerT>>;
+
 	// clang-format off
 	template<typename BodyT>
 	concept ro_chunked_body = requires(BodyT&& body)
@@ -78,6 +90,19 @@ namespace cppcoro::http::detail
 	{
 		using self_type = static_parser_handler<is_request>;
 
+		static constexpr auto c_parser_type = []() {
+			if constexpr (is_request)
+			{
+				return detail::http_parser_type::HTTP_REQUEST;
+			}
+			else
+			{
+				return detail::http_parser_type::HTTP_RESPONSE;
+			}
+		}();
+
+		using parser_ptr = c_parser_ptr<c_parser_type, static_parser_handler>;
+
 	public:
 		static_parser_handler() = default;
 		static_parser_handler(static_parser_handler&& other) noexcept
@@ -85,26 +110,49 @@ namespace cppcoro::http::detail
 			, header_field_{ std::move(other.header_field_) }
 			, state_{ std::move(other.state_) }
 		{
-			if (parser_)
-			{
-				parser_->data = this;
-			}
+			parser_->data = this;
 		}
 		static_parser_handler& operator=(static_parser_handler&& other) noexcept
 		{
 			parser_ = std::move(other.parser_);
 			header_field_ = std::move(other.header_field_);
 			state_ = std::move(other.state_);
-			if (parser_)
-			{
-				parser_->data = this;
-			}
+			parser_->data = this;
 			return *this;
 		}
 		static_parser_handler(const static_parser_handler&) noexcept = delete;
 		static_parser_handler& operator=(const static_parser_handler&) noexcept = delete;
 
+		std::optional<size_t> content_length() const noexcept
+		{
+			//			return parser_->content_length ==
+			//					std::numeric_limits<decltype(parser_->content_length)>::max()
+			//				? std::optional<size_t>{}
+			//				: parser_->content_length;
+			if (headers_.contains("Content-Length"))
+			{
+				auto it = headers_.find("Content-Length");
+				std::span view{ it->second };
+				size_t sz = 0;
+				auto [ptr, error] =
+					std::from_chars(view.data(), view.data() + view.size_bytes(), sz);
+				assert(error == std::errc{});
+				return sz;
+			}
+			else
+			{
+				return {};
+			}
+		}
+
+		bool header_done() const noexcept { return state_ >= status::on_headers_complete; }
 		bool has_body() const noexcept { return body_.size(); }
+		auto body()
+		{
+			auto body = body_;
+			body_ = {};
+			return body;
+		}
 
 		bool chunked() const { return state_ != status::on_message_complete && has_body(); }
 
@@ -134,11 +182,11 @@ namespace cppcoro::http::detail
 		{
 			if constexpr (is_request)
 			{
-                return method();
+				return method();
 			}
 			else
 			{
-                return status_code();
+				return status_code();
 			}
 		}
 
@@ -160,8 +208,6 @@ namespace cppcoro::http::detail
 		//				co_await message.write_body(body_);
 		//			}
 		//		}
-
-		[[nodiscard]] auto body() const { return body_; }
 
 		const auto& url() const { return url_; }
 
@@ -197,7 +243,8 @@ namespace cppcoro::http::detail
 			on_message_begin,
 			on_url,
 			on_status,
-			on_headers,
+			on_header_field,
+			on_header_value,
 			on_headers_complete,
 			on_body,
 			on_message_complete,
@@ -235,7 +282,7 @@ namespace cppcoro::http::detail
 		static inline int on_header_field(detail::http_parser* parser, const char* data, size_t len)
 		{
 			auto& this_ = instance(parser);
-			this_.state_ = status::on_headers;
+			this_.state_ = status::on_header_field;
 			this_.header_field_ = { data, len };
 			return 0;
 		}
@@ -243,10 +290,19 @@ namespace cppcoro::http::detail
 		static inline int on_header_value(detail::http_parser* parser, const char* data, size_t len)
 		{
 			auto& this_ = instance(parser);
+			if (this_.state_ == status::on_header_field)
+			{
+				this_.headers_.emplace(this_.header_field_, std::string{ data, data + len });
+			}
+			else
+			{
+				// header has been cut
+				auto it = this_.headers_.find(this_.header_field_);
+				assert(it != this_.headers_.end());
+				it->second.append(std::string_view{ data, data + len });
+			}
+			this_.state_ = status::on_header_value;
 
-			this_.state_ = status::on_headers;
-			this_.headers_.emplace(
-				std::string{ this_.header_field_ }, std::string{ data, data + len });
 			return 0;
 		}
 
@@ -286,33 +342,19 @@ namespace cppcoro::http::detail
 			return 0;
 		}
 
-		void init_parser()
-		{
-			if (!parser_)
-			{
-				parser_ = std::make_unique<detail::http_parser>();
-				if constexpr (is_request)
-					http_parser_init(parser_.get(), detail::http_parser_type::HTTP_REQUEST);
-				else
-					http_parser_init(parser_.get(), detail::http_parser_type::HTTP_RESPONSE);
-				parser_->data = this;
-			}
-		}
-
 		auto execute_parser(const char* data, size_t len)
 		{
-			init_parser();
 			return http_parser_execute(parser_.get(), &http_parser_settings_, data, len);
 		}
 
 	private:
-		std::unique_ptr<detail::http_parser> parser_;
+		parser_ptr parser_ = parser_ptr::make(this);
 		inline static detail::http_parser_settings http_parser_settings_ = {
 			on_message_begin,    on_url,  on_status,           on_header_field, on_header_value,
 			on_headers_complete, on_body, on_message_complete, on_chunk_header, on_chunk_complete,
 		};
 		status state_{ status::none };
-		std::string_view header_field_;
+		std::string header_field_;
 		std::string url_;
 		byte_span body_;
 		http::headers headers_;

@@ -16,29 +16,38 @@
 
 using namespace cppcoro;
 
-#ifdef CPPCORO_HTTP_MBEDTLS
-#	include "../ssl/cert.hpp"
-#endif
+struct base_test
+{
+	using server_con_type = http::server_connection<net::socket>;
+	using client_con_type = http::client_connection<net::socket>;
+};
 
-#include <cppcoro/net/make_socket.hpp>
-#include <cppcoro/detail/function_traits.hpp>
-
-using test_types = std::tuple<
-	std::tuple<http::server_connection<net::socket>, http::client_connection<net::socket>>
 #if CPPCORO_HTTP_HAS_SSL
-	,
-	std::tuple<http::server_connection<net::ssl::socket>, http::client_connection<net::ssl::socket>>
-#endif
-	>;
+#include "../ssl/cert.hpp"
 
-TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_types)
+struct ssl_test
+{
+	using server_con_type = http::server_connection<net::ssl::socket>;
+	using client_con_type = http::client_connection<net::ssl::socket>;
+};
+#endif
+
+TEMPLATE_TEST_CASE(
+	"echo http server",
+	"[cppcoro-http][http-server][echo]",
+	base_test
+#if CPPCORO_HTTP_HAS_SSL
+//	,
+//	ssl_test
+#endif
+)
 {
 #if CPPCORO_HTTP_HAS_SSL
 	namespace ssl_args = net::ssl_args;
 #endif
 
-	using server_connection = std::tuple_element_t<0, TestType>;
-	using client_connection = std::tuple_element_t<1, TestType>;
+	using server_connection = typename TestType::server_con_type;
+	using client_connection = typename TestType::client_con_type;
 
 	http::logging::log_level = spdlog::level::debug;
 	spdlog::set_level(spdlog::level::debug);
@@ -64,23 +73,27 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 		auto receive = [&]() -> task<> {
 			std::uint8_t buffer[100];
 			std::uint64_t total_bytes_received = 0;
-			std::size_t bytes_received;
 			auto rx = net::make_rx_message(con, std::span{ buffer });
 
 			auto header = co_await rx.receive_header();
 
-			while ((bytes_received = co_await rx.receive()) != 0)
+			spdlog::info("client received header: content-length: {} bytes", header.content_length.value());
+
+			net::readable_bytes body{};
+
+			while ((body = co_await rx.receive()).size() != 0)
 			{
-				spdlog::debug("client received: {}", std::span{ buffer, bytes_received });
-				for (std::size_t i = 0; i < bytes_received; ++i)
+                spdlog::debug("client received: {} bytes", body.size_bytes());
+				spdlog::debug("client received: {}", body);
+				for (std::size_t i = 0; i < body.size_bytes(); ++i)
 				{
 					std::uint64_t byte_index = total_bytes_received + i;
 					std::uint8_t expected_byte = 'a' + (byte_index % 26);
 					CHECK(buffer[i] == expected_byte);
 				}
-				total_bytes_received += bytes_received;
+				total_bytes_received += body.size_bytes();
 			}
-            CHECK(*header.content_length == 1000);
+			CHECK(*header.content_length == 1000);
 			CHECK(total_bytes_received == 1000);
 		};
 		auto send = [&]() -> task<> {
@@ -90,9 +103,10 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 			auto tx_header = tx.make_header(http::method::post);
 
 			tx_header.method = http::method::post;
+            tx_header.path = "/";
 			tx_header.content_length = sizeof(buffer) * 1000;
 
-            co_await tx.send(std::move(tx_header));
+			co_await tx.send(std::move(tx_header));
 
 			for (std::uint64_t i = 0; i < 1000; i += sizeof(buffer))
 			{
@@ -120,25 +134,28 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 				[&](server_connection connection) -> task<> {
 					try
 					{
-						size_t bytes_received;
 						char buffer[64]{};
 						auto rx = net::make_rx_message(connection, std::span{ buffer });
 						auto tx = net::make_tx_message(connection, std::span{ buffer });
 
 						auto rx_header = co_await rx.receive_header();
-                        auto tx_header = tx.make_header(http::status::HTTP_STATUS_OK);
+						auto tx_header = tx.make_header(http::status::HTTP_STATUS_OK);
 
-                        tx_header.content_length = rx_header.content_length;
+                        spdlog::info("server received header: content-length: {} bytes", rx_header.content_length.value());
+
+						tx_header.content_length = rx_header.content_length;
 
 						co_await tx.send(std::move(tx_header));
 
-						while ((bytes_received = co_await rx.receive()) != 0)
+						net::readable_bytes body{};
+
+						while ((body = co_await rx.receive()).size() != 0)
 						{
-							spdlog::info("server received {} bytes", bytes_received);
+							spdlog::info("server received {} bytes", body.size());
 							spdlog::debug(
-								"server received: {}", std::span{ buffer, bytes_received });
-							auto bytes_sent = co_await tx.send(bytes_received);
-							REQUIRE(bytes_sent == bytes_received);
+								"server received: {}", body);
+							auto bytes_sent = co_await tx.send(body);
+							REQUIRE(bytes_sent == body.size_bytes());
 						}
 					}
 					catch (operation_cancelled&)

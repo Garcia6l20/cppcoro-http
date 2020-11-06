@@ -7,6 +7,9 @@
 
 namespace cppcoro::detail {
 
+	template <typename T>
+	void no_free_func(T *) {}
+
 	/** @brief C-struct deleter.
 	 * 
 	 * @tparam T            The C-struct.
@@ -26,7 +29,7 @@ namespace cppcoro::detail {
 	 * @tparam init_func    The init function.
 	 * @tparam free_func    The free function.
 	 */
-	template <typename T, auto init_func, auto free_func>
+	template <typename T, auto init_func, auto free_func = no_free_func<T>>
 	struct c_shared_ptr : std::shared_ptr<T> {
 
         c_shared_ptr(c_shared_ptr&& other) = default;
@@ -50,7 +53,7 @@ namespace cppcoro::detail {
      * @tparam init_func    The init function.
      * @tparam free_func    The free function.
      */
-    template <typename T, auto init_func, auto free_func>
+    template <typename T, auto init_func, auto free_func = no_free_func<T>>
     struct c_unique_ptr : std::unique_ptr<T, c_deleter<T, free_func>> {
 //		using std::unique_ptr<T, c_deleter<T, free_func>>::unique_ptr;
         using std::unique_ptr<T, c_deleter<T, free_func>>::operator=;

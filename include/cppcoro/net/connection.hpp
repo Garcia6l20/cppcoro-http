@@ -4,7 +4,4 @@
 
 namespace cppcoro::net
 {
-	enum class connection_mode {
-		client, server
-	};
 }

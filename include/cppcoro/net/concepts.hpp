@@ -18,7 +18,9 @@ namespace cppcoro::net
 
     class ip_endpoint;
 
-	enum class connection_mode;
+    enum class connection_mode {
+        client, server
+    };
 
 	// clang-format off
 

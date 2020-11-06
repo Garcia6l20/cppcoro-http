@@ -3,10 +3,8 @@
  */
 #pragma once
 
-#include <mbedtls/timing.h>
-
-#include <cppcoro/net/concepts.hpp>
 #include <cppcoro/net/connection.hpp>
+#include <cppcoro/net/concepts.hpp>
 
 #include <cppcoro/ssl/certificate.hpp>
 #include <cppcoro/ssl/context.hpp>
