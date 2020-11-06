@@ -53,17 +53,6 @@ namespace cppcoro::net
 		using peer_verify_mode = net::ssl::peer_verify_mode;
 	}  // namespace ssl_args
 
-	namespace detail
-	{
-		template<typename T>
-		struct always_false
-		{
-			bool value = false;
-		};
-		template<typename T>
-		constexpr auto always_false_v = always_false<T>::value;
-	}  // namespace detail
-
 	template<socket_mode mode, typename SocketT = void>
 	struct make_socket_t
 	{

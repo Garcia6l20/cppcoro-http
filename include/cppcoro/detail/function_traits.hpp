@@ -4,11 +4,11 @@
 
 namespace cppcoro::detail
 {
-    struct parameters_tuple_all_enabled
-    {
-        template<typename T>
-        static constexpr bool value = true;
-    };
+	struct parameters_tuple_all_enabled
+	{
+		template<typename T>
+		static constexpr bool value = true;
+	};
 
 	template<typename... ArgsT>
 	struct parameters_tuple_disable
@@ -27,15 +27,15 @@ namespace cppcoro::detail
 		template<
 			typename Ret,
 			typename Cls,
-			typename IsMutable,
-			typename IsLambda,
+			bool IsMutable,
+			bool IsLambda,
 			typename... Args>
-		struct types
+		struct types : std::true_type
 		{
-			using is_mutable = IsMutable;
-			using is_lambda = IsLambda;
+			static constexpr bool is_mutable = IsMutable;
+            static constexpr bool is_lambda = IsLambda;
 
-			static constexpr auto is_function() { return !is_lambda(); }
+			static constexpr bool is_function = not is_lambda;
 
 			enum
 			{
@@ -105,36 +105,63 @@ namespace cppcoro::detail
 		};
 	}  // namespace function_detail
 
-	template<class T>
-	struct function_traits : function_traits<decltype(&std::decay_t<T>::operator())>
+	// primary template: not a function
+	template<class T, typename = void>
+	struct function_traits : std::false_type
 	{
 	};
 
-	// mutable lambda
+	// default resolution with operator()
+	// forwards to corresponding
+    template<class T>
+    struct function_traits<T, std::void_t<decltype(&T::operator())>>
+        : function_traits<decltype(&T::operator())>
+    {
+    };
+
+	// callable
 	template<class Ret, class Cls, class... Args>
 	struct function_traits<Ret (Cls::*)(Args...)>
-		: function_detail::types<Ret, Cls, std::true_type, std::true_type, Args...>
+		: function_detail::types<Ret, Cls, true, true, Args...>
 	{
 	};
 
-	// immutable lambda
+	// noexcept callable
+	template<class Ret, class Cls, class... Args>
+	struct function_traits<Ret (Cls::*)(Args...) noexcept>
+		: function_detail::types<Ret, Cls, true, true, Args...>
+	{
+	};
+
+	// const callable
 	template<class Ret, class Cls, class... Args>
 	struct function_traits<Ret (Cls::*)(Args...) const>
-		: function_detail::types<Ret, Cls, std::false_type, std::true_type, Args...>
+		: function_detail::types<Ret, Cls, false, true, Args...>
 	{
 	};
 
-	// std::function
+	// const noexcept callable
+	template<class Ret, class Cls, class... Args>
+	struct function_traits<Ret (Cls::*)(Args...) const noexcept>
+		: function_detail::types<Ret, Cls, false, true, Args...>
+	{
+	};
+
+	// function
 	template<class Ret, class... Args>
 	struct function_traits<std::function<Ret(Args...)>>
-		: function_detail::types<Ret, std::nullptr_t, std::true_type, std::false_type, Args...>
+		: function_detail::types<Ret, std::nullptr_t, true, true, Args...>
 	{
 	};
 
-	// c-function
+	// c-style function
 	template<class Ret, class... Args>
-	struct function_traits<std::function<Ret (*)(Args...)>>
-		: function_detail::types<Ret, std::nullptr_t, std::true_type, std::false_type, Args...>
+	struct function_traits<Ret (*)(Args...)>
+		: function_detail::types<Ret, std::nullptr_t, true, false, Args...>
 	{
 	};
+
+	template<typename T>
+	constexpr bool is_callable_v = function_traits<T>::value;
+
 }  // namespace cppcoro::detail

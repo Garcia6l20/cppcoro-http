@@ -1,8 +1,9 @@
 #pragma once
 
-#include <cppcoro/net/concepts.hpp>
+#include <cppcoro/concepts.hpp>
 #include <cppcoro/net/socket.hpp>
 #include <cppcoro/ssl/socket.hpp>
+#include <cppcoro/detail/is_specialization.hpp>
 #include <variant>
 
 namespace cppcoro::detail
@@ -56,17 +57,19 @@ namespace cppcoro::detail
 			std::forward<decltype(tuple)>(tuple));
 	}
 
-	namespace impl {
-		template <typename TupleT>
+	namespace impl
+	{
+		template<typename TupleT>
 		struct tuple_pop_front;
 
-        template <typename FirstT, typename ...RestT>
-        struct tuple_pop_front<std::tuple<FirstT, RestT...>> {
+		template<typename FirstT, typename... RestT>
+		struct tuple_pop_front<std::tuple<FirstT, RestT...>>
+		{
 			using type = std::tuple<RestT...>;
 		};
-	}
+	}  // namespace impl
 
-	template <is_tuple TupleT>
+	template<is_tuple TupleT>
 	using tuple_pop_front_t = typename impl::tuple_pop_front<TupleT>::type;
 
 	constexpr decltype(auto) tuple_push_back(is_tuple auto&& tuple, auto&&... elem)
@@ -251,9 +254,10 @@ namespace cppcoro::detail
 	using tuple_transform_t = std::decay_t<decltype(
 		tuple_transform<TupleT>(std::declval<std::decay_t<decltype(lambda)>>()))>;
 
-    template <impl::is_index_invocable LambdaT>
-    constexpr auto tuple_generate(LambdaT &&lambda) {
-        return detail::impl::generate(std::forward<decltype(lambda)>(lambda));
-    }
+	template<impl::is_index_invocable LambdaT>
+	constexpr auto tuple_generate(LambdaT&& lambda)
+	{
+		return detail::impl::generate(std::forward<decltype(lambda)>(lambda));
+	}
 
 }  // namespace cppcoro::detail
