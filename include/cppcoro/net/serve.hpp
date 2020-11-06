@@ -107,7 +107,7 @@ namespace cppcoro::net
 				auto conn_socket = make_socket();
 				co_await accept(conn_socket);
 				scope.spawn([make_connection](auto sock, auto handler, std::reference_wrapper<args_t> args) -> task<> {
-#ifdef CPPCORO_HTTP_MBEDTLS
+#if CPPCORO_HTTP_HAS_SSL
 					if constexpr (ssl::is_socket<socket_type>)
 					{
 						co_await sock.encrypt();

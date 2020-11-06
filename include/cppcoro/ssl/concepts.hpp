@@ -11,7 +11,7 @@ namespace cppcoro::net::ssl
 	template <typename T>
 	concept is_socket = cppcoro::net::is_socket<T> and requires (T v)
     {
-        { v.encrypt() } -> awaitable;
+        { v.encrypt(std::declval<cancellation_token>()) } -> awaitable;
     };
     // clang-format on
 }

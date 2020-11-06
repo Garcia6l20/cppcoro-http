@@ -66,7 +66,7 @@ namespace cppcoro::net
                 size = bytes_.size();
             }
 			assert(size <= bytes_.size());
-			return _send(std::span{bytes_.data(), size});
+			return _receive(std::span{bytes_.data(), size});
 		}
 
 	protected:
@@ -88,6 +88,7 @@ namespace cppcoro::net
                 bytesReceived = co_await socket_.recv(
                     bytes.data() + totalBytesReceived, bytes.size_bytes() - totalBytesReceived, ct_);
                 totalBytesReceived += bytesReceived;
+                spdlog::debug("client bytesReceived: {}", bytesReceived);
             } while (bytesReceived > 0 && totalBytesReceived < bytes.size_bytes());
             co_return totalBytesReceived;
 		}

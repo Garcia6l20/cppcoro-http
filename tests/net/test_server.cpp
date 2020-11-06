@@ -13,32 +13,46 @@
 
 using namespace cppcoro;
 
+struct base_test
+{
+	using server_con_type = tcp::server_connection<net::socket>;
+	using client_con_type = tcp::client_connection<net::socket>;
+};
+
 #if CPPCORO_HTTP_HAS_SSL
 #include "../ssl/cert.hpp"
+
+struct ssl_test
+{
+	using server_con_type = tcp::server_connection<net::ssl::socket>;
+	using client_con_type = tcp::client_connection<net::ssl::socket>;
+};
 #endif
 
-using test_types = std::tuple<
-	std::tuple<tcp::server_connection<net::socket>, tcp::client_connection<net::socket>>
+TEMPLATE_TEST_CASE(
+	"echo tcp server",
+	"[cppcoro-http][server][echo]",
+	base_test
 #if CPPCORO_HTTP_HAS_SSL
 	,
-	std::tuple<tcp::server_connection<net::ssl::socket>, tcp::client_connection<net::ssl::socket>>
+	ssl_test
 #endif
-	>;
-
-TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_types)
+)
 {
 #if CPPCORO_HTTP_HAS_SSL
 	namespace ssl_args = net::ssl_args;
 #endif
 
-	using server_connection = std::tuple_element_t<0, TestType>;
-	using client_connection = std::tuple_element_t<1, TestType>;
+	using server_connection = typename TestType::server_con_type;
+	using client_connection = typename TestType::client_con_type;
 
 	spdlog::set_level(spdlog::level::debug);
 
 	io_service ioSvc{ 512 };
 	constexpr size_t client_count = 25;
-	const auto endpoint = *net::ip_endpoint::from_string("127.0.0.1:4243");
+	const auto endpoint = *net::ip_endpoint::from_string("127.0.0.1:4242");
+
+	static_assert(net::ssl::is_socket<net::ssl::socket>);
 
 	cancellation_source source{};
 	auto echoClient = [&]() -> task<> {
@@ -124,6 +138,7 @@ TEMPLATE_LIST_TEST_CASE("echo tcp server", "[cppcoro-http][server][echo]", test_
 							throw error;
 						}
 					}
+					spdlog::info("closing server connection");
 					co_await connection.disconnect();
 				},
 				std::ref(source)

@@ -6,6 +6,8 @@
 #include <mbedtls/timing.h>
 
 #include <cppcoro/net/concepts.hpp>
+#include <cppcoro/net/connection.hpp>
+
 #include <cppcoro/ssl/certificate.hpp>
 #include <cppcoro/ssl/context.hpp>
 #include <cppcoro/ssl/key.hpp>
@@ -54,13 +56,7 @@ namespace cppcoro::net::ssl
 	class socket : public net::socket
 	{
 	private:
-		enum class mode
-		{
-			server,
-			client
-		} mode_;
-
-		template<mode mode_, bool tcp_v6 = false>
+		template<net::connection_mode mode_, bool tcp_v6 = false>
 		static socket create(
 			io_service& ioSvc,
 			std::optional<ssl::certificate> certificate,
@@ -168,7 +164,7 @@ namespace cppcoro::net::ssl
 		socket(
 			io_service& service,
 			net::socket sock,
-			mode mode_,
+			net::connection_mode mode_,
 			std::optional<ssl::certificate> cert,
 			std::optional<ssl::private_key> key)
 			: net::socket{ std::move(sock) }
@@ -176,12 +172,12 @@ namespace cppcoro::net::ssl
 			, io_service_{ service }
 			, certificate_{ std::move(cert) }
 			, key_{ std::move(key) }
-			, verify_mode_{ mode_ == mode::server ? peer_verify_mode::none
+			, verify_mode_{ mode_ == net::connection_mode::server ? peer_verify_mode::none
 												  : peer_verify_mode::required }
 		{
 			if (auto error = mbedtls_ssl_config_defaults(
 					ssl_config_.get(),
-					mode_ == mode::server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
+					mode_ == net::connection_mode::server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
 					MBEDTLS_SSL_TRANSPORT_STREAM,
 					MBEDTLS_SSL_PRESET_DEFAULT);
 				error != 0)
@@ -239,6 +235,7 @@ namespace cppcoro::net::ssl
 		}
 
 		io_service& io_service_;
+        net::connection_mode mode_;
 		std::optional<ssl::certificate> certificate_{};
 		std::optional<ssl::private_key> key_{};
 		detail::mbedtls_ssl_context_ptr ssl_context_ = detail::mbedtls_ssl_context_ptr::make();
@@ -285,7 +282,7 @@ namespace cppcoro::net::ssl
 		static socket
 		create_server(io_service& io_service, ssl::certificate&& certificate, ssl::private_key&& pk)
 		{
-			return create<mode::server>(
+			return create<net::connection_mode::server>(
 				io_service,
 				std::forward<decltype(certificate)>(certificate),
 				std::forward<decltype(pk)>(pk));
@@ -303,7 +300,7 @@ namespace cppcoro::net::ssl
 			std::optional<ssl::certificate> certificate = {},
 			std::optional<ssl::private_key> pk = {})
 		{
-			return create<mode::client>(io_service, std::move(certificate), std::move(pk));
+			return create<net::connection_mode::client>(io_service, std::move(certificate), std::move(pk));
 		}
 
 		/** @brief Create ssl server socket (ipv6).
@@ -313,7 +310,7 @@ namespace cppcoro::net::ssl
 		static socket create_server_v6(
 			io_service& io_service, ssl::certificate&& certificate, ssl::private_key&& pk)
 		{
-			return create<mode::server, true>(
+			return create<net::connection_mode::server, true>(
 				io_service,
 				std::forward<decltype(certificate)>(certificate),
 				std::forward<decltype(pk)>(pk));
@@ -328,7 +325,7 @@ namespace cppcoro::net::ssl
 			std::optional<ssl::certificate> certificate = {},
 			std::optional<ssl::private_key> pk = {})
 		{
-			return create<mode::client, true>(io_service, std::move(certificate), std::move(pk));
+			return create<net::connection_mode::client, true>(io_service, std::move(certificate), std::move(pk));
 		}
 
 		/** @brief Set peer verification mode.
@@ -374,9 +371,7 @@ namespace cppcoro::net::ssl
 				auto result = mbedtls_ssl_handshake(ssl_context_.get());
 				if (result == 0)
 				{
-//					if (mode_ == mode::client)
-//						close_recv();
-					break;
+					co_return;
 				}
 				else if (result == MBEDTLS_ERR_SSL_WANT_READ)
 				{
@@ -513,13 +508,13 @@ namespace cppcoro::net::ssl
 		}
 	};
 
-	template<ssl::socket::mode mode_, bool tcp_v6>
+	template<net::connection_mode mode_, bool tcp_v6>
 	ssl::socket ssl::socket::create(
 		cppcoro::io_service& io_service,
 		std::optional<ssl::certificate> cert,
 		std::optional<ssl::private_key> pk)
 	{
-		if constexpr (mode_ == mode::server)
+		if constexpr (mode_ == net::connection_mode::server)
 		{
 			assert(cert && pk);
 		}
