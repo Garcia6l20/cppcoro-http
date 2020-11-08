@@ -88,12 +88,12 @@ TEMPLATE_TEST_CASE(
 				for (std::size_t i = 0; i < body.size_bytes(); ++i)
 				{
 					std::uint64_t byte_index = total_bytes_received + i;
-					std::uint8_t expected_byte = 'a' + (byte_index % 26);
-					CHECK(buffer[i] == expected_byte);
+					std::byte expected_byte = std::byte('a' + (byte_index % 26));
+					CHECK(body[i] == expected_byte);
 				}
 				total_bytes_received += body.size_bytes();
 			}
-			CHECK(*header.content_length == 1000);
+			CHECK(*header.content_length == 100000);
 			CHECK(total_bytes_received == 1000);
 		};
 		auto send = [&]() -> task<> {
