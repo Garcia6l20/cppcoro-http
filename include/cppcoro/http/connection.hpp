@@ -28,13 +28,24 @@ namespace cppcoro::http
 	template<is_config>
 	class server;
 
-	template<typename MethodOrStatusT, bool is_request>
+	template<bool is_request>
 	struct message_header
 	{
 		using parser_t = detail::static_parser_handler<is_request>;
+		using method_or_status_t = typename parser_t::method_or_status_t;
 
-		message_header(MethodOrStatusT& method_or_status, http::headers&& headers = {}) noexcept
+		message_header(method_or_status_t& method_or_status, http::headers&& headers = {}) noexcept
 			: _method_or_status{ method_or_status }
+			, headers{ std::forward<http::headers>(headers) }
+		{
+		}
+
+		message_header(
+			method_or_status_t& method,
+			std::string_view path,
+			http::headers&& headers = {}) noexcept
+			: _method_or_status{ method }
+			, path{ path }
 			, headers{ std::forward<http::headers>(headers) }
 		{
 		}
@@ -42,7 +53,7 @@ namespace cppcoro::http
 		message_header(parser_t& parser)
 		{
 			_method_or_status = parser.status_code_or_method();
-            content_length = parser.content_length(); // before moving headers
+			content_length = parser.content_length();  // before moving headers
 			headers = std::move(parser.headers_);
 
 			if constexpr (is_request)
@@ -51,9 +62,9 @@ namespace cppcoro::http
 			}
 		}
 
-		MethodOrStatusT _method_or_status;
-		MethodOrStatusT& method{ _method_or_status };
-		MethodOrStatusT& status{ _method_or_status };
+		method_or_status_t _method_or_status;
+		method_or_status_t& method{ _method_or_status };
+		method_or_status_t& status{ _method_or_status };
 
 		std::optional<size_t> content_length{};
 		std::optional<std::string> path{};
@@ -116,42 +127,92 @@ namespace cppcoro::http
 	};
 
 	template<net::is_socket SocketT, net::message_direction direction, net::connection_mode mode>
-	struct message : protected net::message<SocketT, direction>
+	struct message;
+
+	// tx message
+	template<net::is_socket SocketT, net::connection_mode mode>
+	struct message<SocketT, net::message_direction::outgoing, mode>
+		: protected net::message<SocketT, net::message_direction::outgoing>
 	{
-		using base = net::message<SocketT, direction>;
+		using base = net::message<SocketT, net::message_direction::outgoing>;
 		using base::base;
 		//		using base::receive;
 		using base::send;
 
-		static constexpr bool is_request = (mode == net::connection_mode::server and
-											direction == net::message_direction::incoming) or
-			(mode == net::connection_mode::client and
-			 direction == net::message_direction::outgoing);
-
-		static constexpr bool is_response = (mode == net::connection_mode::server and
-											 direction == net::message_direction::outgoing) or
-			(mode == net::connection_mode::client and
-			 direction == net::message_direction::incoming);
+		static constexpr bool is_request = mode == net::connection_mode::client;
+		static constexpr bool is_response = mode == net::connection_mode::server;
 
 		using method_or_status_t = std::conditional_t<is_request, http::method, http::status>;
 		using parser_t = detail::static_parser_handler<is_request>;
 
-		using header_type = message_header<method_or_status_t, is_request>;
+		using header_type = message_header<is_request>;
 
 		header_type make_header(method_or_status_t method_or_status, http::headers&& headers = {})
 		{
 			return header_type{ method_or_status, std::forward<http::headers>(headers) };
 		}
 
-		task<header_type> receive_header()
+		task<size_t> send(header_type&& header)
 		{
-			std::optional<size_t> content_length{};
-			do
-			{
-                auto bytes_received = co_await base::receive();
-				parser_.parse(std::span{ this->bytes_.data(), bytes_received });
-			} while (not parser_.header_done());
-			co_return header_type{ parser_ };
+			header_data_ = std::forward<header_type>(header).build();
+			return base::send(std::as_writable_bytes(std::span{ header_data_ }));
+		}
+
+		task<> begin_message(
+			method_or_status_t method, std::string_view path, size_t size) requires(is_request)
+		{
+            header_type hdr{ method, path };
+			hdr.content_length = size;
+			co_await send(std::move(hdr));
+		}
+
+		task<> begin_message(method_or_status_t status, size_t size) requires(is_response)
+		{
+            header_type hdr{ status };
+            hdr.content_length = size;
+			co_await send(std::move(hdr));
+		}
+
+	private:
+		parser_t parser_;
+		std::string header_data_;
+	};
+	static_assert(
+		net::has_begin_message<
+			message<net::socket, net::message_direction::outgoing, net::connection_mode::client>,
+			http::method,
+			std::string_view,
+			size_t>);
+
+	// rx message
+	template<net::is_socket SocketT, net::connection_mode mode>
+	struct message<SocketT, net::message_direction::incoming, mode>
+		: protected net::message<SocketT, net::message_direction::incoming>
+	{
+		using base = net::message<SocketT, net::message_direction::incoming>;
+		using base::base;
+
+		//		using base::receive;
+		//		using base::send;
+
+		static constexpr bool is_request = mode == net::connection_mode::server;
+		static constexpr bool is_response = mode == net::connection_mode::client;
+
+		using method_or_status_t = std::conditional_t<is_request, http::method, http::status>;
+		using parser_t = detail::static_parser_handler<is_request>;
+
+		using header_type = message_header<is_request>;
+
+		header_type make_header(method_or_status_t method_or_status, http::headers&& headers = {})
+		{
+			return header_type{ method_or_status, std::forward<http::headers>(headers) };
+		}
+
+
+		task<> begin_message()
+		{
+			co_await receive_header();
+			content_length = parser_.content_length();
 		}
 
 		task<net::readable_bytes> receive()
@@ -175,15 +236,20 @@ namespace cppcoro::http
 			}
 		}
 
-		task<size_t> send(header_type&& header)
-		{
-			header_data_ = std::forward<header_type>(header).build();
-			return base::send(std::as_writable_bytes(std::span{ header_data_ }));
-		}
+		std::optional<size_t> content_length{};
 
 	private:
-		parser_t parser_;
-		std::string header_data_;
+
+        task<> receive_header()
+        {
+            do
+            {
+                auto bytes_received = co_await base::receive();
+                parser_.parse(std::span{ this->bytes_.data(), bytes_received });
+            } while (not parser_.header_done());
+        }
+
+		parser_t parser_{};
 	};
 
 	template<
@@ -228,8 +294,6 @@ namespace cppcoro::http
 
 		connection(connection&& other) noexcept
 			: base{ std::move(other) }
-			, /*input_{std::move(other.input_)},*/
-			buffer_{ std::move(other.buffer_) }
 			, logger_{ std::move(other.logger_) }
 		{
 		}
@@ -251,269 +315,15 @@ namespace cppcoro::http
 
 		explicit connection(socket_type socket, cancellation_token ct)
 			: base(std::move(socket), std::move(ct))
-			, buffer_(2048, 0)
 		{
 			logger_->info("new {} connection", is_server ? "server" : "client");
 		}
-
-		static constexpr parser_type make_parser() { return parser_type{}; }
-
-		template<typename T, size_t extent = std::dynamic_extent>
-		task<bool> receive(parser_type& parser, std::span<T, extent> data)
-		{
-			using message_t = http::detail::abstract_span_message<is_client, decltype(data)>;
-			logger_->debug("waiting for incoming message...");
-			// std::fill(begin(buffer_), end(buffer_), '\0');
-			auto ret = co_await this->sock_.recv(
-				std::as_writable_bytes(data).data(),
-				std::as_writable_bytes(data).size(),
-				this->ct_);
-			logger_->debug("got something: {}", ret);
-			bool done = ret <= 0;
-			co_return done;
-		}
-
-		task<> receive(base_receive_type& receive)
-		{
-			parser_type parser;
-
-			while (true)
-			{
-				logger_->debug("waiting for incoming message...");
-				// std::fill(begin(buffer_), end(buffer_), '\0');
-				auto ret = co_await this->sock_.recv(buffer_.data(), buffer_.size(), this->ct_);
-				logger_->debug("got something: {}", ret);
-				bool done = ret <= 0;
-				if (!done)
-				{
-					parser.parse(buffer_.data(), ret);
-					receive = parser;
-					if (parser.has_body() && not parser)
-					{
-						// chunk
-						assert(false);
-					}
-					if (parser)
-					{
-						co_await parser.load(receive);
-						logger_->debug("message: {}", receive);
-						co_return;
-					}
-				}
-				else
-				{
-					co_return;
-				}
-			}
-		}
-
-#if 0
-		task<receive_type*> next(std::function<base_receive_type&(parser_type&)> init)
-		{
-			base_receive_type* result = nullptr;
-			parser_type parser;
-			auto init_result = [&] {
-				result = &init(parser);
-				if (!result)
-				{
-					logger_->warn("unable to get valid message handler for {}", parser);
-				}
-			};
-			while (true)
-			{
-				logger_->debug("waiting for incoming message...");
-				// std::fill(begin(buffer_), end(buffer_), '\0');
-				auto ret = co_await this->sock_.recv(buffer_.data(), buffer_.size(), this->ct_);
-				logger_->debug("got something: {}", ret);
-				bool done = ret <= 0;
-				if (!done)
-				{
-					parser.parse(buffer_.data(), ret);
-					if (!result)
-						init_result();
-					if (parser.has_body() && not parser)
-					{
-						// chunk
-						if (result)
-						{
-							co_await parser.load(*result);
-							logger_->debug("chunked message: {}", *result);
-						}
-						else
-						{
-							co_return nullptr;
-						}
-					}
-					if (parser)
-					{
-						if (!result)
-							init_result();
-						if (result)
-						{
-							//co_await parser.load(*result);
-							logger_->debug("message: {}", *result);
-							co_return std::move(static_cast<receive_type*>(result));
-						}
-						else
-						{
-							co_return nullptr;
-						}
-					}
-				}
-				else
-				{
-					co_return nullptr;
-				}
-			}
-		}
-
-		auto _send() {
-
-		}
-
-		auto
-		post(std::string&& path, std::string&& data = "", http::headers&& headers = {}) requires(
-			is_client())
-		{
-			return _send<http::method::post>(
-				std::forward<std::string>(path),
-				std::forward<std::string>(data),
-				std::forward<http::headers>(headers));
-		}
-
-		auto
-		get(std::string&& path = "/",
-			std::string&& data = "",
-			http::headers&& headers = {}) requires(is_client())
-		{
-			return _send<http::method::get>(
-				std::forward<std::string>(path),
-				std::forward<std::string>(data),
-				std::forward<http::headers>(headers));
-		}
-
-		template<typename T, size_t extent>
-		task<> send(auto status_or_method, std::span<T, extent> data, http::headers&& headers = {})
-		{
-			using message_t = http::detail::abstract_span_message<is_server(), std::decay_t<decltype(data)>>;
-			message_t message{ status_or_method, std::span{ data }, std::forward<http::headers>(headers) };
-			auto header = message.build_header();
-			auto size = co_await this->sock_.send(header.data(), header.size(), this->ct_);
-			assert(size == header.size());
-			if (!data.empty())
-			{
-				logger_->debug("body: {}", data);
-				auto size = co_await this->sock_.send(
-					std::as_bytes(data).data(), std::as_bytes(data).size(), this->ct_);
-				assert(size == std::as_bytes(data).size());
-			}
-		}
-
-		task<> send(std::derived_from<http::detail::base_message> auto& to_send)
-		{
-			auto header = to_send.build_header();
-			try
-			{
-				if (to_send.is_chunked())
-				{
-					byte_span body;
-					auto size = co_await this->sock_.send(header.data(), header.size(), this->ct_);
-					assert(size == header.size());
-					body = co_await to_send.read_body();
-					while (!body.empty())
-					{
-						auto size_str = fmt::format("{:x}\r\n", body.size());
-						co_await this->sock_.send(size_str.data(), size_str.size(), this->ct_);
-						logger_->debug("chunked body: {}", body);
-						size = co_await this->sock_.send(body.data(), body.size(), this->ct_);
-						if (size != body.size())
-						{
-							logger_->error("body not sent ({}/{})", size, body.size());
-						}
-						else
-						{
-							co_await this->sock_.send("\r\n", 2, this->ct_);
-						}
-						body = co_await to_send.read_body();
-					}
-					auto size_str = fmt::format("{}\r\n\r\n", 0);
-					co_await this->sock_.send(size_str.data(), size_str.size(), this->ct_);
-				}
-				else
-				{
-					auto size = co_await this->sock_.send(header.data(), header.size(), this->ct_);
-					assert(size == header.size());
-					if (!to_send.body.empty())
-					{
-						logger_->debug("body: {}", to_send.body);
-						auto size = co_await this->sock_.send(to_send.body.data(), to_send.body.size(), this->ct_);
-						assert(size == to_send.body.size());
-					}
-//				}
-			}
-			catch (std::system_error& error)
-			{
-				if (error.code() == std::errc::connection_reset)
-				{
-					throw error;  // Connection reset by peer
-				}
-				logger_->error("system_error caught: {}", error.what());
-				if constexpr (is_server())
-				{
-					string_response error_message{ http::status::HTTP_STATUS_INTERNAL_SERVER_ERROR,
-												   std::string{ error.what() },
-												   {} };
-					if (error.code() == std::errc::no_such_file_or_directory)
-					{
-						error_message.status = http::status::HTTP_STATUS_NOT_FOUND;
-					}
-					header = error_message.build_header();
-					auto size = co_await this->sock_.send(header.data(), header.size(), this->ct_);
-					assert(size == header.size());
-					auto body = co_await to_send.read_body();
-					size = co_await this->sock_.send(body.data(), body.size(), this->ct_);
-					assert(size == body.size());
-				}
-				else
-				{
-					throw;
-				}
-			}
-		}
-#endif
 
 		template<typename ConnectionT>
 		ConnectionT upgrade() noexcept
 		{
 			return ConnectionT{ std::move(this->sock_) };
 		}
-
-	private:
-#if 0
-		template<http::method _method>
-		task<std::optional<receive_type>>
-		_send(std::string&& path, std::string&& data, http::headers&& headers) requires(is_client())
-		{
-			send_type request{ _method,
-							   std::forward<std::string>(path),
-							   std::forward<std::string>(data),
-							   std::forward<http::headers>(headers) };
-			co_await send(request);
-			receive_type response{ http::status::HTTP_STATUS_NOT_FOUND };
-			auto resp = co_await next([&](http::response_parser& parser) -> receive_type& {
-				response = parser;
-				return response;
-			});
-			if (resp)
-			{
-				co_return std::optional<receive_type>{ std::move(*resp) };
-			}
-			co_return std::optional<receive_type>{};
-		}
-#endif
-
-		std::vector<char> buffer_;
-		// std::unique_ptr<receive_type> input_;
 	};
 
 	template<net::is_socket SocketT>

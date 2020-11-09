@@ -22,7 +22,7 @@ namespace cppcoro::http
 {
 	using byte_span = std::span<std::byte, std::dynamic_extent>;
 
-	template<typename, bool>
+	template<bool is_request>
 	struct message_header;
 
 	template<net::is_socket, net::message_direction, net::connection_mode>
@@ -104,19 +104,32 @@ namespace cppcoro::http::detail
 		using parser_ptr = c_parser_ptr<c_parser_type, static_parser_handler>;
 
 	public:
+		using method_or_status_t = std::conditional_t<is_request, http::method, http::status>;
+
 		static_parser_handler() = default;
 		static_parser_handler(static_parser_handler&& other) noexcept
 			: parser_{ std::move(other.parser_) }
 			, header_field_{ std::move(other.header_field_) }
+			, url_{ std::move(other.url_) }
+			, body_{ std::move(other.body_) }
 			, state_{ std::move(other.state_) }
+			, headers_{ std::move(other.headers_) }
 		{
 			parser_->data = this;
 		}
+		//        status state_{ status::none };
+		//        std::string header_field_;
+		//        std::string url_;
+		//        byte_span body_;
+		//        http::headers headers_;
 		static_parser_handler& operator=(static_parser_handler&& other) noexcept
 		{
 			parser_ = std::move(other.parser_);
 			header_field_ = std::move(other.header_field_);
-			state_ = std::move(other.state_);
+			url_ = std::move(other.url_);
+			body_ = std::move(other.body_);
+            state_ = std::move(other.state_);
+			headers_ = std::move(other.headers_);
 			parser_->data = this;
 			return *this;
 		}
@@ -178,7 +191,7 @@ namespace cppcoro::http::detail
 		auto method() const { return static_cast<http::method>(parser_->method); }
 		auto status_code() const { return static_cast<http::status>(parser_->status_code); }
 
-		auto status_code_or_method() const
+		method_or_status_t status_code_or_method() const
 		{
 			if constexpr (is_request)
 			{

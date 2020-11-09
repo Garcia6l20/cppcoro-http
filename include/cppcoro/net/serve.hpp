@@ -79,60 +79,72 @@ namespace cppcoro::net
 					return false;  // endless
 				}
 			};
-			auto make_connection = [](socket_type&& socket, auto &args) {
+			auto ct = [](auto&& args) {
+				if constexpr (cppcoro::detail::in_tuple<
+								  std::tuple<ArgsT...>,
+								  std::reference_wrapper<cancellation_source>>)
+				{
+					return std::get<cppcoro::cancellation_source&>(args).token();
+				}
+				else
+				{
+					return std::get<cancellation_token>(args);
+				}
+			};
+			auto make_connection = [ct](socket_type&& socket, auto& args) -> task<connection_type> {
 				if constexpr (is_connection<connection_type>)
 				{
-					if constexpr (cppcoro::detail::in_tuple<
-									  std::tuple<ArgsT...>,
-									  std::reference_wrapper<cancellation_source>>)
+					using http_con_t = http::connection<socket_type, connection_mode::server>;
+					if constexpr (is_http_upgrade_connection<connection_type, http_con_t>)
 					{
-						return connection_type{
-							std::forward<socket_type>(socket),
-							std::get<cppcoro::cancellation_source&>(args).token()
-						};
+						co_return co_await connection_type::from_http_connection(
+							http_con_t{ std::forward<socket_type>(socket), ct(args) });
 					}
 					else
 					{
-						return connection_type{ std::forward<socket_type>(socket),
-												std::get<cancellation_token>(args) };
+						co_return connection_type{ std::forward<socket_type>(socket), ct(args) };
 					}
 				}
 				else
 				{
-					return std::forward<socket_type>(socket);
+					co_return std::forward<socket_type>(socket);
 				}
 			};
 			while (not is_done())
 			{
 				auto conn_socket = make_socket();
 				co_await accept(conn_socket);
-				scope.spawn([make_connection](auto sock, auto handler, std::reference_wrapper<args_t> args) -> task<> {
+				scope.spawn(
+					[make_connection](
+						auto sock, auto handler, std::reference_wrapper<args_t> args) -> task<> {
 #if CPPCORO_HTTP_HAS_SSL
-					if constexpr (ssl::is_socket<socket_type>)
-					{
-						co_await sock.encrypt();
-					}
+						if constexpr (ssl::is_socket<socket_type>)
+						{
+							co_await sock.encrypt();
+						}
 #endif
-					co_await std::apply(
-						handler,
-						std::tuple_cat(
-							std::make_tuple(make_connection(std::move(sock), args.get())),
-							cppcoro::detail::tuple_generate([&]<size_t index>() {
-								if constexpr (std::tuple_size_v<handler_args_type> > index)
-								{
-									using element_t =
-										std::tuple_element_t<index, handler_args_type>;
-									if constexpr (std::is_rvalue_reference_v<element_t>)
+						co_await std::apply(
+							handler,
+							std::tuple_cat(
+								std::make_tuple(
+									co_await make_connection(std::move(sock), args.get())),
+								cppcoro::detail::tuple_generate([&]<size_t index>() {
+									if constexpr (std::tuple_size_v<handler_args_type> > index)
 									{
-										return std::get<std::remove_reference_t<element_t>>(args.get());
+										using element_t =
+											std::tuple_element_t<index, handler_args_type>;
+										if constexpr (std::is_rvalue_reference_v<element_t>)
+										{
+											return std::get<std::remove_reference_t<element_t>>(
+												args.get());
+										}
+										else
+										{
+											return std::get<element_t>(args);
+										}
 									}
-									else
-									{
-										return std::get<element_t>(args);
-									}
-								}
-							})));
-				}(std::move(conn_socket), connection_handler, std::ref(args)));
+								})));
+					}(std::move(conn_socket), connection_handler, std::ref(args)));
 			}
 		}
 		catch (operation_cancelled&)

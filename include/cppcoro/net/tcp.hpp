@@ -63,7 +63,7 @@ namespace cppcoro
 			}
 
 			template<typename T, size_t extent = std::dynamic_extent>
-			task<size_t> receive(std::span<T, extent> data)
+			task<size_t> receive_all(std::span<T, extent> data)
 			{
 				std::size_t totalBytesReceived = 0;
 				std::size_t bytesReceived = 0;
@@ -76,6 +76,14 @@ namespace cppcoro
 				} while (bytesReceived > 0 && totalBytesReceived < bytes.size());
 				co_return totalBytesReceived;
 			}
+
+            template<typename T, size_t extent = std::dynamic_extent>
+            task<size_t> receive(std::span<T, extent> data)
+            {
+                auto bytes = std::as_writable_bytes(data);
+                co_return co_await sock_.recv(
+                        bytes.data(), bytes.size_bytes(), ct_);
+            }
 
 			template<typename T, size_t extent = std::dynamic_extent>
 			task<size_t> send(std::span<T, extent> data)
@@ -90,7 +98,18 @@ namespace cppcoro
 				co_return bytesSent;
 			}
 
-			decltype(auto) disconnect() { return sock_.disconnect(); }
+			decltype(auto) disconnect() {
+
+                try
+                {
+					sock_.close_send();
+                }
+                catch (std::system_error&)
+                {
+                    // ignore close errors
+                }
+				return sock_.disconnect();
+			}
 			decltype(auto) close_send() { return sock_.close_send(); }
 
 			[[nodiscard]] auto& socket() noexcept { return sock_; }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cppcoro/net/make_socket.hpp>
+#include <cppcoro/http/connection.hpp>
 
 namespace cppcoro::net
 {
@@ -75,14 +76,18 @@ namespace cppcoro::net
 				co_return socket;
 			}
 		};
-#endif // CPPCORO_HTTP_MBEDTLS
+#endif  // CPPCORO_HTTP_MBEDTLS
 
 		template<net::is_connection ConnectionT>
 		struct connect_t<ConnectionT>
 		{
+			using http_con_t =
+				http::connection<typename ConnectionT::socket_type, ConnectionT::connection_mode>;
+
 			template<typename... ArgsT>
 			task<ConnectionT>
-			operator()(io_service& service, const ip_endpoint& endpoint, ArgsT... args_v)
+			operator()(io_service& service, const ip_endpoint& endpoint, ArgsT... args_v) requires(
+				not net::is_http_upgrade_connection<ConnectionT, http_con_t>)
 			{
 				auto args = std::make_tuple(std::forward<ArgsT>(args_v)...);
 				using args_t = decltype(args);
@@ -107,6 +112,17 @@ namespace cppcoro::net
 						std::tuple_cat(std::forward_as_tuple(service, endpoint), std::move(args))),
 					ct()
 				};
+			}
+
+			template<typename... ArgsT>
+			task<ConnectionT> operator()(
+				io_service& service,
+				const ip_endpoint& endpoint,
+				ArgsT... args_v) requires net::is_http_upgrade_connection<ConnectionT, http_con_t>
+			{
+				auto con = co_await std::invoke(
+					connect_t<http_con_t>{}, service, endpoint, std::forward<ArgsT>(args_v)...);
+				co_return co_await ConnectionT::from_http_connection(std::move(con));
 			}
 		};
 	}  // namespace impl

@@ -1,61 +1,184 @@
 #include <catch2/catch.hpp>
 
-#include <cppcoro/ws/server.hpp>
-#include <cppcoro/ws/client.hpp>
+//#include <cppcoro/ws/server.hpp>
+//#include <cppcoro/ws/client.hpp>
+#include <cppcoro/ws/connection.hpp>
+#include <cppcoro/net/socket.hpp>
+#include <cppcoro/net/connect.hpp>
+#include <cppcoro/net/message.hpp>
+#include <cppcoro/net/serve.hpp>
 
-#include <cppcoro/http/session.hpp>
+//#include <cppcoro/http/session.hpp>
 
 #include <cppcoro/on_scope_exit.hpp>
 #include <cppcoro/sync_wait.hpp>
-#include <cppcoro/single_consumer_event.hpp>
+#include <cppcoro/cancellation_source.hpp>
 
 using namespace cppcoro;
 
-TEST_CASE("WebSocket server should work", "[cppcoro-http][ws]")
+struct base_test
 {
-	spdlog::set_level(spdlog::level::debug);
-	spdlog::flush_on(spdlog::level::debug);
+    using server_con_type = ws::server_connection<net::socket>;
+    using client_con_type = ws::client_connection<net::socket>;
+};
 
-	auto endpoint = *net::ip_endpoint::from_string("127.0.0.1:4222");
+#if CPPCORO_HTTP_HAS_SSL
+#include <cppcoro/ssl/socket.hpp>
+#include "../ssl/cert.hpp"
 
-	io_service svc{ 128 };
-	ws::server<http::default_session_config<>> ws_server{
-		svc, endpoint
-	};
-	single_consumer_event client_terminated;
-	(void)sync_wait(when_all(
-		[&]() -> task<> {
-			auto stop_io_service = on_scope_exit([&svc] {
-				svc.stop();
-			});
-			try
-			{
-				auto con = co_await ws_server.listen();
-				auto msg = co_await con.recv();
-				spdlog::info("received {}", std::string_view{ msg.begin(), msg.end() });
-				auto sent = co_await con.send(std::span{ msg });
-				spdlog::info("sent {} bytes", sent);
-			}
-			catch (std::exception& error)
-			{
-				FAIL(fmt::format("error: {}", error.what()));
-			}
-            co_await client_terminated;
-			co_return;
-		}(),
-		[&]() -> task<> {
-            auto notify_stopped = on_scope_exit([&] {
-                client_terminated.set();
-            });
-			ws::client<tcp::ipv4_socket_provider> client{svc};
-			auto con = co_await client.connect(endpoint);
-			std::string_view hello{"Hello world !"};
-			co_await con.send(std::span{ hello });
-			auto msg = co_await con.recv();
-			REQUIRE(std::string_view{ msg.data(), msg.data() + msg.size() } == hello);
-		}(),
-		[&svc]() -> task<> {
-			svc.process_events();
-			co_return;
-		}()));
+struct ssl_test
+{
+    using server_con_type = ws::server_connection<net::ssl::socket>;
+    using client_con_type = ws::client_connection<net::ssl::socket>;
+};
+#endif
+
+TEMPLATE_TEST_CASE(
+    "echo web socket server",
+    "[cppcoro-http][http-server][echo]",
+    base_test
+#if CPPCORO_HTTP_HAS_SSL
+//,
+//    ssl_test
+#endif
+)
+{
+#if CPPCORO_HTTP_HAS_SSL
+    namespace ssl_args = net::ssl_args;
+#endif
+
+    using server_connection = typename TestType::server_con_type;
+    using client_connection = typename TestType::client_con_type;
+
+//    http::logging::log_level = spdlog::level::debug;
+    spdlog::set_level(spdlog::level::debug);
+
+    io_service ioSvc{ 512 };
+    constexpr size_t client_count = 25;
+    const auto endpoint = *net::ip_endpoint::from_string("127.0.0.1:1111");
+
+    cancellation_source source{};
+    auto echoClient = [&]() -> task<> {
+      auto _ = on_scope_exit([&] { source.request_cancellation(); });
+      auto con = co_await net::connect<client_connection>(
+          ioSvc,
+          endpoint,
+          std::ref(source)
+#if CPPCORO_HTTP_HAS_SSL
+          ,
+          ssl_args::verify_flags{ ssl_args::verify_flags::allow_untrusted },
+          ssl_args::peer_verify_mode { ssl_args::peer_verify_mode::required }
+#endif
+      );
+
+      auto receive = [&]() -> task<> {
+        std::uint8_t buffer[100];
+        std::uint64_t total_bytes_received = 0;
+        auto rx = co_await net::make_rx_message(con, std::span{ buffer });
+
+        auto header = co_await rx.receive_header();
+
+        spdlog::info("client received header: payload-length: {} bytes", header.payload_length);
+
+        net::readable_bytes body{};
+
+        while ((body = co_await rx.receive()).size() != 0)
+        {
+            spdlog::debug("client received: {} bytes", body.size_bytes());
+            spdlog::debug("client received: {}", body);
+            for (std::size_t i = 0; i < body.size_bytes(); ++i)
+            {
+                std::uint64_t byte_index = total_bytes_received + i;
+                std::byte expected_byte = std::byte('a' + (byte_index % 26));
+                CHECK(body[i] == expected_byte);
+            }
+            total_bytes_received += body.size_bytes();
+        }
+        CHECK(total_bytes_received == 100000);
+      };
+      auto send = [&]() -> task<> {
+        std::uint8_t buffer[100]{};
+        auto tx = co_await net::make_tx_message(con, std::span{ buffer }, sizeof(buffer) * 1000);
+
+        for (std::uint64_t i = 0; i < 1000; i += sizeof(buffer))
+        {
+            for (std::size_t j = 0; j < sizeof(buffer); ++j)
+            {
+                buffer[j] = 'a' + ((i + j) % 26);
+            }
+            auto sent_bytes = co_await tx.send();
+            spdlog::info("client sent {} bytes", sent_bytes);
+            spdlog::debug("client sent: {}", std::span{ buffer, sent_bytes });
+        }
+		con.close_send();
+      };
+
+      co_await when_all(send(), receive());
+
+      co_await con.disconnect();
+    };
+
+    sync_wait(when_all(
+        [&]() -> task<> {
+          auto _ = on_scope_exit([&] { ioSvc.stop(); });
+          co_await net::serve(
+              ioSvc,
+              endpoint,
+              [&](server_connection connection) -> task<> {
+                try
+                {
+                    char buffer[64]{};
+                    auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
+//
+//					while(co_await rx.receive()) {
+//                        auto tx = co_await net::make_tx_message(connection, rx.body());
+//					}
+//
+//                    auto rx_header = co_await rx.receive_header();
+//                    auto tx_header = tx.make_header();
+//
+//                    spdlog::info("server received header: payload-length: {} bytes", rx_header.payload_length);
+//
+//                    tx_header.payload_length = rx_header.payload_length;
+//
+//                    co_await tx.send(std::move(tx_header));
+//
+//                    net::readable_bytes body{};
+//
+//                    while ((body = co_await rx.receive()).size() != 0)
+//                    {
+//                        spdlog::info("server received {} bytes", body.size());
+//                        spdlog::debug(
+//                            "server received: {}", body);
+//                        auto bytes_sent = co_await tx.send(body);
+//                        REQUIRE(bytes_sent == body.size_bytes());
+//                    }
+                }
+                catch (operation_cancelled&)
+                {
+                }
+                catch (std::system_error& error)
+                {
+                    if (error.code() != std::errc::connection_reset)
+                    {
+                        throw error;
+                    }
+                }
+                co_await connection.disconnect();
+              },
+              std::ref(source)
+#if CPPCORO_HTTP_HAS_SSL
+              ,
+              net::ssl::certificate{ cert },
+              net::ssl::private_key{ key },
+              ssl_args::host_name{ "localhost" },
+              ssl_args::peer_verify_mode { ssl_args::peer_verify_mode::optional }
+#endif
+          );
+        }(),
+        echoClient(),
+        [&]() -> task<> {
+          ioSvc.process_events();
+          co_return;
+        }()));
 }

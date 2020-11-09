@@ -44,6 +44,7 @@ namespace cppcoro::net
 //        { v.send(std::declval<const void*>(), size_t{}, cancellation_token{}) } -> awaitable<size_t>;
     };
 
+
     template<typename T>
     concept is_connection = requires(T obj)
     {
@@ -52,6 +53,14 @@ namespace cppcoro::net
         { T::connection_mode } -> std::convertible_to<net::connection_mode>;
         { obj.socket() } -> is_socket;
         { obj.token() } -> std::same_as<cancellation_token>;
+    };
+
+    template <typename T, typename HttpConnectionT>
+    concept is_http_upgrade_connection = requires (T)
+    {
+        typename T::socket_type;
+        typename T::template message_type<>;
+        { T::from_http_connection(std::declval<HttpConnectionT&&>()) } -> awaitable;
     };
 
     template <typename T>

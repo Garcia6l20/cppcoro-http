@@ -72,7 +72,7 @@ TEMPLATE_TEST_CASE(
 			std::uint8_t buffer[100];
 			std::uint64_t total_bytes_received = 0;
 			std::size_t bytes_received;
-			auto message = net::make_rx_message(con, std::span{ buffer });
+			auto message = co_await net::make_rx_message(con, std::span{ buffer });
 			while ((bytes_received = co_await message.receive()) != 0)
 			{
 				spdlog::debug("client received: {}", std::span{ buffer, bytes_received });
@@ -88,9 +88,9 @@ TEMPLATE_TEST_CASE(
 		};
 		auto send = [&]() -> task<> {
 			std::uint8_t buffer[100]{};
-			auto message = net::make_tx_message(con, std::span{ buffer });
 			for (std::uint64_t i = 0; i < 1000; i += sizeof(buffer))
 			{
+				auto message = co_await net::make_tx_message(con, std::span{ buffer });
 				for (std::size_t j = 0; j < sizeof(buffer); ++j)
 				{
 					buffer[j] = 'a' + ((i + j) % 26);
@@ -99,6 +99,7 @@ TEMPLATE_TEST_CASE(
 				spdlog::info("client sent {} bytes", sent_bytes);
 				spdlog::debug("client sent: {}", std::span{ buffer, sent_bytes });
 			}
+            con.close_send();
 		};
 
 		co_await when_all(send(), receive());
@@ -117,8 +118,8 @@ TEMPLATE_TEST_CASE(
 					{
 						size_t bytes_received;
 						char buffer[64]{};
-						auto rx = net::make_rx_message(connection, std::span{ buffer });
-						auto tx = net::make_tx_message(connection, std::span{ buffer });
+						auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
+						auto tx = co_await net::make_tx_message(connection, std::span{ buffer });
 						while ((bytes_received = co_await rx.receive()) != 0)
 						{
 							spdlog::info("server received {} bytes", bytes_received);

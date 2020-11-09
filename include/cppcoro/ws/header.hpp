@@ -47,9 +47,11 @@ namespace cppcoro::ws
 		bool rsv1 = false, rsv2 = false, rsv3 = false;
 		op_code opcode = op_code::continuation_frame;
 		bool mask = false;
-		uint64_t payload_len = 0;
+		uint64_t payload_length = 0;
 		uint32_t masking_key = 0;
 		size_t payload_offset = 5;
+
+        static constexpr size_t max_header_size = 14;
 
 		static header parse(std::span<std::byte> buffer)
 		{
@@ -62,20 +64,20 @@ namespace cppcoro::ws
 			h.opcode = ws::op_code(buffer[0] & std::byte{ 0b0000'1111 });
 
 			h.mask = (buffer[1] & std::byte{ 0b1000'0000 }) != std::byte{ 0 };
-			h.payload_len = uint64_t(buffer[1] & std::byte{ 0b0111'1111 });
+			h.payload_length = uint64_t(buffer[1] & std::byte{ 0b0111'1111 });
 			size_t mask_offset = 2;
-			if (h.payload_len == 126)
+			if (h.payload_length == 126)
 			{
 				constexpr size_t index = 2;
 				static_assert(std::is_trivially_copyable_v<std::byte>);
 				uint16_t len = 0;
 				std::memcpy(&len, &buffer[2], 2);
-				h.payload_len = len;
+				h.payload_length = len;
 				mask_offset = 6;
 			}
-			else if (h.payload_len == 127)
+			else if (h.payload_length == 127)
 			{
-				std::memcpy(&h.payload_len, &buffer[2], 8);
+				std::memcpy(&h.payload_length, &buffer[2], 8);
 				mask_offset = 10;
 			}
 			if (h.mask)
@@ -90,29 +92,33 @@ namespace cppcoro::ws
 			return h;
 		}
 
+		void update_payload_offset() {
+            size_t mask_offset = 2;
+            if (payload_length >= 127 && payload_length <= std::numeric_limits<uint16_t>::max())
+            {
+                mask_offset = 6;
+            }
+            else if (payload_length > std::numeric_limits<uint16_t>::max())
+            {
+                mask_offset = 10;
+            }
+            payload_offset = mask_offset + 4;
+		}
+
 		std::tuple<size_t, size_t> calc_payload_size(size_t requested_payload_sz, size_t max_sz)
 		{
 			size_t to_send = 0;
-			payload_len = requested_payload_sz;
+			payload_length = requested_payload_sz;
 			do
 			{
 				if (to_send > max_sz)
 				{
-					payload_len -= (to_send - max_sz);
+					payload_length -= (to_send - max_sz);
 				}
-				size_t mask_offset = 2;
-				if (payload_len >= 127 && payload_len <= std::numeric_limits<uint16_t>::max())
-				{
-					mask_offset = 6;
-				}
-				else if (payload_len > std::numeric_limits<uint16_t>::max())
-				{
-					mask_offset = 10;
-				}
-				payload_offset = mask_offset + 4;
-				to_send = payload_len + payload_offset;
+				update_payload_offset();
+				to_send = payload_length + payload_offset;
 			} while (to_send > max_sz);
-			return { to_send, payload_len };
+			return { to_send, payload_length };
 		}
 
 		template<typename CharT, size_t extent = std::dynamic_extent>
@@ -122,22 +128,22 @@ namespace cppcoro::ws
 			std::memset(&buffer[0], 0, 14);
 			buffer[0] = std::byte(fin << 7u) | std::byte(rsv1 << 6u) | std::byte(rsv2 << 5u) |
 				std::byte(rsv3 << 4u) | (std::byte(opcode) & std::byte(0b0000'1111));
-			if (payload_len < 126)
+			if (payload_length < 126)
 			{
 				buffer[1] =
-					std::byte(mask << 7u) | (std::byte(0b0111'1111) & std::byte(payload_len));
+					std::byte(mask << 7u) | (std::byte(0b0111'1111) & std::byte(payload_length));
 			}
-			else if (payload_len < std::numeric_limits<uint16_t>::max())
+			else if (payload_length < std::numeric_limits<uint16_t>::max())
 			{
 				buffer[1] = std::byte(mask << 7u);
-				uint16_t len = payload_len;
+				uint16_t len = payload_length;
 				std::memcpy(&buffer[2], &len, 2);
 				mask_offset = 6;
 			}
 			else
 			{
 				buffer[1] = std::byte(mask << 7u) | std::byte(0b0100'0000);
-				std::memcpy(&buffer[2], &payload_len, 8);
+				std::memcpy(&buffer[2], &payload_length, 8);
 				mask_offset = 10;
 			}
 			if (mask)
@@ -151,4 +157,4 @@ namespace cppcoro::ws
 			}
 		}
 	};
-}  // namespace cppcoro::http::ws
+}  // namespace cppcoro::ws

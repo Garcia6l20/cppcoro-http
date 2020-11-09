@@ -6,8 +6,10 @@
 
 #include <cppcoro/net/socket.hpp>
 
-#ifdef CPPCORO_HTTP_MBEDTLS
+#if CPPCORO_HTTP_HAS_SSL
 #include <cppcoro/ssl/socket.hpp>
+#include <cppcoro/ssl/certificate.hpp>
+#include <cppcoro/ssl/key.hpp>
 #endif
 
 namespace cppcoro::net
