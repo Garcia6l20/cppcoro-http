@@ -316,6 +316,7 @@ namespace cppcoro::http
 
 		std::optional<size_t> content_length{};
 		bool chunked = false;
+		std::string path{};
 
 	private:
 		task<> receive_header()
@@ -336,6 +337,7 @@ namespace cppcoro::http
 			{
 				remaining_length = *content_length;
 			}
+            path = parser_.url();
 		}
 
 		size_t remaining_length = 0;

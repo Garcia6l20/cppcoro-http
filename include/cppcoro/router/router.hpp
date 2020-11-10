@@ -85,6 +85,12 @@ namespace cppcoro::router
 						{
 							std::get<type_idx>(data) = std::get<typename ParamT::type&>(args);
 						}
+						else if constexpr (cppcoro::detail::in_tuple<
+											   ArgsT,
+											   std::reference_wrapper<typename ParamT::type>>)
+						{
+							std::get<type_idx>(data) = std::get<typename ParamT::type&>(args);
+						}
 						else
 						{
 							std::get<type_idx>(data) = std::get<typename ParamT::type&>(context);
