@@ -34,7 +34,9 @@ struct ssl_test
 #endif
 
 TEMPLATE_TEST_CASE(
-	"echo web socket server", "[cppcoro-http][http-server][echo]", base_test
+	"echo web socket server",
+	"[cppcoro-http][http-server][echo]",
+	base_test
 #if CPPCORO_HTTP_HAS_SSL
 	,
 	ssl_test
@@ -128,44 +130,31 @@ TEMPLATE_TEST_CASE(
 				ioSvc,
 				endpoint,
 				[&](server_connection connection) -> task<> {
-					try
-					{
-						std::uint64_t total_bytes_received = 0;
-						char buffer[100]{};
-						char tx_buffer[100]{};
-						auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
+					std::uint64_t total_bytes_received = 0;
+					char buffer[100]{};
+					char tx_buffer[100]{};
+					auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
 
+					spdlog::info(
+						"server received header: payload-length: {} bytes", *rx.payload_length);
+
+					auto tx = co_await net::make_tx_message(
+						connection, std::span{ tx_buffer }, *rx.payload_length);
+
+					net::readable_bytes body{};
+
+					while ((body = co_await rx.receive()).size() != 0)
+					{
 						spdlog::info(
-							"server received header: payload-length: {} bytes", *rx.payload_length);
-
-						auto tx = co_await net::make_tx_message(
-							connection, std::span{ tx_buffer }, *rx.payload_length);
-
-						net::readable_bytes body{};
-
-						while ((body = co_await rx.receive()).size() != 0)
-						{
-							spdlog::info(
-								"server received {} bytes: {}",
-								body.size(),
-								std::string_view{ reinterpret_cast<const char*>(body.data()),
-												  body.size() });
-							total_bytes_received += body.size_bytes();
-							auto bytes_sent = co_await tx.send(body);
-							REQUIRE(bytes_sent == body.size_bytes());
-						}
-						REQUIRE(total_bytes_received == 1000);
+							"server received {} bytes: {}",
+							body.size(),
+							std::string_view{ reinterpret_cast<const char*>(body.data()),
+											  body.size() });
+						total_bytes_received += body.size_bytes();
+						auto bytes_sent = co_await tx.send(body);
+						REQUIRE(bytes_sent == body.size_bytes());
 					}
-					catch (operation_cancelled&)
-					{
-					}
-					catch (std::system_error& error)
-					{
-						if (error.code() != std::errc::connection_reset)
-						{
-							throw error;
-						}
-					}
+					REQUIRE(total_bytes_received == 1000);
 					co_await connection.disconnect();
 				},
 				std::ref(source)

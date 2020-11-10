@@ -123,27 +123,33 @@ namespace cppcoro::net
 							co_await sock.encrypt();
 						}
 #endif
-						co_await std::apply(
-							handler,
-							std::tuple_cat(
-								std::make_tuple(
-									co_await make_connection(std::move(sock), args.get())),
-								cppcoro::detail::tuple_generate([&]<size_t index>() {
-									if constexpr (std::tuple_size_v<handler_args_type> > index)
-									{
-										using element_t =
-											std::tuple_element_t<index, handler_args_type>;
-										if constexpr (std::is_rvalue_reference_v<element_t>)
+						try
+						{
+							co_await std::apply(
+								handler,
+								std::tuple_cat(
+									std::make_tuple(
+										co_await make_connection(std::move(sock), args.get())),
+									cppcoro::detail::tuple_generate([&]<size_t index>() {
+										if constexpr (std::tuple_size_v<handler_args_type> > index)
 										{
-											return std::get<std::remove_reference_t<element_t>>(
-												args.get());
+											using element_t =
+												std::tuple_element_t<index, handler_args_type>;
+											if constexpr (std::is_rvalue_reference_v<element_t>)
+											{
+												return std::get<std::remove_reference_t<element_t>>(
+													args.get());
+											}
+											else
+											{
+												return std::get<element_t>(args);
+											}
 										}
-										else
-										{
-											return std::get<element_t>(args);
-										}
-									}
-								})));
+									})));
+						}
+						catch (operation_cancelled&)
+						{
+						}
 					}(std::move(conn_socket), connection_handler, std::ref(args)));
 			}
 		}

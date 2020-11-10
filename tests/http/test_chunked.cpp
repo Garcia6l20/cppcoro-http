@@ -29,34 +29,25 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]")
 				ios,
 				endpoint,
 				[](http::server_connection<net::socket> con) -> task<> {
-					try
+					net::byte_buffer<256> buffer{};
+					net::byte_buffer<256> tx_buffer{};
+					auto rx = co_await net::make_rx_message(con, std::span{ buffer });
+					REQUIRE(rx.chunked);
+					http::headers hdrs{ { "Transfer-Encoding", "chunked" } };
+					auto tx = co_await net::make_tx_message(
+						con, std::span{ tx_buffer }, http::status::HTTP_STATUS_OK, std::move(hdrs));
+					net::readable_bytes body;
+					while ((body = co_await rx.receive()).size() != 0)
 					{
-						net::byte_buffer<256> buffer{};
-						net::byte_buffer<256> tx_buffer{};
-						auto rx = co_await net::make_rx_message(con, std::span{ buffer });
-						REQUIRE(rx.chunked);
-						http::headers hdrs{ { "Transfer-Encoding", "chunked" } };
-						auto tx = co_await net::make_tx_message(
-							con,
-							std::span{ tx_buffer },
-							http::status::HTTP_STATUS_OK,
-							std::move(hdrs));
-						net::readable_bytes body;
-						while ((body = co_await rx.receive()).size() != 0)
-						{
-							spdlog::debug(
-								"server received {} bytes: {}",
-								body.size(),
-								std::string_view{ reinterpret_cast<const char*>(body.data()),
-												  body.size() });
-							co_await tx.send(body);
-						}
-                        con.close_send();
-                        co_await con.disconnect();
+						spdlog::debug(
+							"server received {} bytes: {}",
+							body.size(),
+							std::string_view{ reinterpret_cast<const char*>(body.data()),
+											  body.size() });
+						co_await tx.send(body);
 					}
-					catch (operation_cancelled&)
-					{
-					}
+					con.close_send();
+					co_await con.disconnect();
 				},
 				std::ref(cancel));
 		};

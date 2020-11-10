@@ -114,31 +114,18 @@ TEMPLATE_TEST_CASE(
 				ioSvc,
 				endpoint,
 				[&](server_connection connection) -> task<> {
-					try
-					{
-						size_t bytes_received;
-						char buffer[64]{};
-						auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
-						auto tx = co_await net::make_tx_message(connection, std::span{ buffer });
-						while ((bytes_received = co_await rx.receive()) != 0)
-						{
-							spdlog::info("server received {} bytes", bytes_received);
-							spdlog::debug(
-								"server received: {}", std::span{ buffer, bytes_received });
-							auto bytes_sent = co_await tx.send(bytes_received);
-							REQUIRE(bytes_sent == bytes_received);
-						}
-					}
-					catch (operation_cancelled&)
-					{
-					}
-					catch (std::system_error& error)
-					{
-						if (error.code() != std::errc::connection_reset)
-						{
-							throw error;
-						}
-					}
+                    size_t bytes_received;
+                    char buffer[64]{};
+                    auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
+                    auto tx = co_await net::make_tx_message(connection, std::span{ buffer });
+                    while ((bytes_received = co_await rx.receive()) != 0)
+                    {
+                        spdlog::info("server received {} bytes", bytes_received);
+                        spdlog::debug(
+                            "server received: {}", std::span{ buffer, bytes_received });
+                        auto bytes_sent = co_await tx.send(bytes_received);
+                        REQUIRE(bytes_sent == bytes_received);
+                    }
 					spdlog::info("closing server connection");
 					co_await connection.disconnect();
 				},
