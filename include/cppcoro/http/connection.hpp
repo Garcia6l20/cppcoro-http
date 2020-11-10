@@ -159,32 +159,39 @@ namespace cppcoro::http
 		}
 
 		task<> begin_message(
-			method_or_status_t method, std::string_view path, size_t size, http::headers &&hdrs = {}) requires(is_request)
+			method_or_status_t method,
+			std::string_view path,
+			size_t size,
+			http::headers&& hdrs = {}) requires(is_request)
 		{
 			header_type hdr{ method, path, std::forward<http::headers>(hdrs) };
 			hdr.content_length = size;
 			co_await send(std::move(hdr));
 		}
 
-        task<> begin_message(
-            method_or_status_t method, std::string_view path, http::headers &&hdrs = {}) requires(is_request)
-        {
-            header_type hdr{ method, path, std::forward<http::headers>(hdrs) };
-            co_await send(std::move(hdr));
-        }
+		task<> begin_message(
+			method_or_status_t method,
+			std::string_view path,
+			http::headers&& hdrs = {}) requires(is_request)
+		{
+			header_type hdr{ method, path, std::forward<http::headers>(hdrs) };
+			co_await send(std::move(hdr));
+		}
 
-		task<> begin_message(method_or_status_t status, size_t size, http::headers &&hdrs = {}) requires(is_response)
+		task<> begin_message(
+			method_or_status_t status, size_t size, http::headers&& hdrs = {}) requires(is_response)
 		{
 			header_type hdr{ status, std::forward<http::headers>(hdrs) };
 			hdr.content_length = size;
 			co_await send(std::move(hdr));
 		}
 
-        task<> begin_message(method_or_status_t status, http::headers &&hdrs = {}) requires(is_response)
-        {
-            header_type hdr{ status, std::forward<http::headers>(hdrs) };
-            co_await send(std::move(hdr));
-        }
+		task<>
+		begin_message(method_or_status_t status, http::headers&& hdrs = {}) requires(is_response)
+		{
+			header_type hdr{ status, std::forward<http::headers>(hdrs) };
+			co_await send(std::move(hdr));
+		}
 
 	private:
 		parser_t parser_;
@@ -232,6 +239,10 @@ namespace cppcoro::http
 			if (parser_.has_body())
 			{
 				co_return parser_.body();
+			}
+			else if (parser_)
+			{
+				co_return net::readable_bytes{};
 			}
 			else
 			{
