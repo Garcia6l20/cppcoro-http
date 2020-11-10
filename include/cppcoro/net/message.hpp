@@ -3,6 +3,7 @@
 #include <cppcoro/cancellation_token.hpp>
 #include <cppcoro/net/concepts.hpp>
 #include <cppcoro/task.hpp>
+#include <cppcoro/detail/always_false.hpp>
 
 #include <span>
 
@@ -34,7 +35,7 @@ namespace cppcoro::net
 		{
 		}
 
-        message(message&&) = default;
+		message(message&&) = default;
 		message(const message&) = delete;
 
 		task<size_t> send(size_t size = std::numeric_limits<size_t>::max()) requires(
@@ -118,13 +119,17 @@ namespace cppcoro::net
 		typename MessageT =
 			typename ConnectionTypeT::template message_type<message_direction::incoming>,
 		typename... ArgsT>
-    task<MessageT>
+	task<MessageT>
 	make_rx_message(ConnectionTypeT& connection, std::span<T, extent> buffer, ArgsT&&... args)
 	{
 		MessageT msg{ connection.socket(), std::as_writable_bytes(buffer), connection.token() };
 		if constexpr (has_begin_message<MessageT, ArgsT...>)
 		{
 			co_await msg.begin_message(std::forward<ArgsT>(args)...);
+		}
+		else if constexpr (sizeof...(ArgsT))
+		{
+			static_assert(cppcoro::always_false_v<MessageT>, "Cannot bind to requested message initializer");
 		}
 		co_return msg;
 	}
@@ -143,6 +148,10 @@ namespace cppcoro::net
 		if constexpr (has_begin_message<MessageT, ArgsT...>)
 		{
 			co_await msg.begin_message(std::forward<ArgsT>(args)...);
+		}
+		else if constexpr (sizeof...(ArgsT))
+		{
+			static_assert(always_false_v<MessageT>, "Cannot bind to requested message initializer");
 		}
 		co_return msg;
 	}

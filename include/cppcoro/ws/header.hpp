@@ -72,23 +72,22 @@ namespace cppcoro::ws
 				static_assert(std::is_trivially_copyable_v<std::byte>);
 				uint16_t len = 0;
 				std::memcpy(&len, &buffer[2], 2);
-				h.payload_length = len;
-				mask_offset = 6;
+				h.payload_length = ntohs(len);
+				mask_offset = 4;
 			}
 			else if (h.payload_length == 127)
 			{
-				std::memcpy(&h.payload_length, &buffer[2], 8);
+                uint64_t _payload_length = 0;
+				std::memcpy(&_payload_length, &buffer[2], 8);
+                h.payload_length = be64toh(_payload_length);
 				mask_offset = 10;
 			}
 			if (h.mask)
 			{
 				std::memcpy(&h.masking_key, &buffer[mask_offset], 4);
-				h.payload_offset = mask_offset + 4;
+				mask_offset += 4;
 			}
-			else
-			{
-				h.payload_offset = mask_offset;
-			}
+            h.payload_offset = mask_offset;
 			return h;
 		}
 
@@ -96,13 +95,17 @@ namespace cppcoro::ws
             size_t mask_offset = 2;
             if (payload_length >= 127 && payload_length <= std::numeric_limits<uint16_t>::max())
             {
-                mask_offset = 6;
+                mask_offset = 4;
             }
             else if (payload_length > std::numeric_limits<uint16_t>::max())
             {
                 mask_offset = 10;
             }
-            payload_offset = mask_offset + 4;
+            if (mask)
+            {
+                mask_offset += 4;
+			}
+            payload_offset = mask_offset;
 		}
 
 		std::tuple<size_t, size_t> calc_payload_size(size_t requested_payload_sz, size_t max_sz)
@@ -135,26 +138,24 @@ namespace cppcoro::ws
 			}
 			else if (payload_length < std::numeric_limits<uint16_t>::max())
 			{
-				buffer[1] = std::byte(mask << 7u);
-				uint16_t len = payload_length;
+				buffer[1] = std::byte(mask << 7u) | std::byte(0b0111'1110);
+				uint16_t len = htons(payload_length);
 				std::memcpy(&buffer[2], &len, 2);
-				mask_offset = 6;
+				mask_offset = 4;
 			}
 			else
 			{
-				buffer[1] = std::byte(mask << 7u) | std::byte(0b0100'0000);
-				std::memcpy(&buffer[2], &payload_length, 8);
+				buffer[1] = std::byte(mask << 7u) | std::byte(0b0111'1111);
+				uint64_t _payload_length = htobe64(payload_length);
+				std::memcpy(&buffer[2], &_payload_length, 8);
 				mask_offset = 10;
 			}
 			if (mask)
 			{
 				std::memcpy(&buffer[mask_offset], &masking_key, 4);
-				payload_offset = mask_offset + 4;
+				mask_offset += 4;
 			}
-			else
-			{
-				payload_offset = mask_offset;
-			}
+            payload_offset = mask_offset;
 		}
 	};
 }  // namespace cppcoro::ws

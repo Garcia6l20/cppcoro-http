@@ -29,31 +29,27 @@ namespace cppcoro::ws
 		using base::base;
 		using typename base::bytes_type;
 
-		static header make_header(op_code op = op_code::text_frame) noexcept
+		task<> begin_message(size_t size)
 		{
-			return header{
-				.opcode = op,
-			};
-		}
-
-		task<size_t> send(header&& _header)
-		{
-			_header.update_payload_offset();
-			_header.serialize(header_bytes_);
-			return base::send(header_bytes_);
-		}
-
-		task<> begin_message(size_t size) {
-            header_ = make_header(op_code::binary_frame);
+			co_await send(header{
+				.fin = true,
+				.opcode = op_code::binary_frame,
+				.payload_length = size,
+			});
 			co_return;
 		}
 
 		using base::send;
 
 	private:
+		task<size_t> send(header&& _header)
+		{
+			_header.update_payload_offset();
+			_header.serialize(header_bytes_);
+			return base::send(std::span{ header_bytes_.data(), _header.payload_offset });
+		}
 		std::array<std::byte, header::max_header_size> header_storage_{};
 		net::writeable_bytes header_bytes_{ header_storage_ };
-		header header_{make_header()};
 	};
 
 	// rx specialization
@@ -64,41 +60,68 @@ namespace cppcoro::ws
 		using base = net::message<SocketT, net::message_direction::incoming>;
 		using base::base;
 
-		task<header> receive_header()
-		{
-			body_ = {};
-			size_t bytes_received = 0;
-			while ((bytes_received = co_await base::receive()) == 0)
-			{
-			}
-			header_ = header::parse(std::span{ this->bytes_.data(), bytes_received });
-			if (header_.payload_offset > bytes_received)
-			{
-				body_ = { &this->bytes_[header_.payload_offset],
-						  std::min(bytes_received, header_.payload_length) };
-			}
-			co_return header_;
-		}
-
-		task<> begin_message() { header_ = co_await receive_header(); }
+		task<> begin_message() { co_await receive_header(); }
 
 		task<net::readable_bytes> receive()
 		{
+//            spdlog::info("bytes_remaining : {}/{}", bytes_remaining_, header_.payload_length);
 			if (body_.size())
 			{
-				co_return std::exchange(body_, net::readable_bytes{});
+				unmask_body();
+				co_return std::exchange(body_, net::writeable_bytes{});
+			}
+			else if (bytes_remaining_ == 0)
+			{
+				co_return net::readable_bytes{};
+			}
+			else if (header_.fin)
+			{
+				auto bytes_received = co_await base::receive();
+				body_ = { this->bytes_.data(), bytes_received };
+				bytes_remaining_ -= bytes_received;
+				unmask_body();
+				co_return std::exchange(body_, net::writeable_bytes{});
 			}
 			else
 			{
-				auto bytes_received = co_await base::receive();
-				co_return std::exchange(body_, net::readable_bytes{});
+				throw std::runtime_error("not implemented");
 			}
 		}
 
+		std::optional<size_t> payload_length{};
+
 	private:
+		size_t mask_offset_{ 0 };
+		void unmask_body()
+		{
+			if (header_.mask)
+			{
+				std::byte masking_key[4]{};
+				std::memcpy(masking_key, &header_.masking_key, 4);
+				for (size_t ii = 0; ii < body_.size(); ++ii, ++mask_offset_)
+				{
+					body_[ii] = body_[ii] xor masking_key[mask_offset_ % 4];
+				}
+			}
+		}
+
+		task<> receive_header()
+		{
+			body_ = {};
+			size_t bytes_received = co_await base::receive();
+			header_ = header::parse(std::span{ this->bytes_.data(), bytes_received });
+			if (header_.payload_offset < bytes_received)
+			{
+				body_ = { &this->bytes_[header_.payload_offset],
+						  std::min(
+							  bytes_received - header_.payload_offset, header_.payload_length) };
+			}
+			bytes_remaining_ = header_.payload_length - (bytes_received - header_.payload_offset);
+			payload_length = header_.payload_length;
+		}
+		size_t bytes_remaining_{ 0 };
 		header header_{};
-		net::readable_bytes body_{};
-		size_t bytes_to_read = 0;
+		net::writeable_bytes body_{};
 	};
 
 	template<net::is_socket SocketT, net::connection_mode connection_mode>
@@ -152,7 +175,7 @@ namespace cppcoro::ws
 
 			// GCC 11 bug:
 			//  cannot inline headers initialization in co_await statement
-			http::headers headers{
+			http::headers hdrs{
 				{ "Connection", "Upgrade" },
 				{ "Upgrade", "websocket" },
 				{ "Sec-WebSocket-Key", hash },
@@ -160,13 +183,18 @@ namespace cppcoro::ws
 			};
 			net::byte_buffer<128> buffer{};
 
-			auto tx = co_await net::make_tx_message(con, std::span{ buffer }, http::method::get, "/");
-//			auto h = tx.make_header(http::method::post, std::move(headers));
-//			h.path = "/";
-//			co_await tx.send(std::move(h));
+			auto tx = co_await net::make_tx_message(
+				con,
+				std::span{ buffer },
+				http::method::get,
+				std::string_view{ "/" },
+				std::move(hdrs));
+            co_await tx.send(std::as_bytes(std::span{ "\r\n" }));
+			//			auto h = tx.make_header(http::method::post, std::move(headers));
+			//			h.path = "/";
+			//			co_await tx.send(std::move(h));
 			auto rx = co_await net::make_rx_message(con, std::span{ buffer });
-			auto rx_header = co_await rx.receive_header();
-			auto accept = rx_header["Sec-WebSocket-Accept"];
+			auto accept = rx["Sec-WebSocket-Accept"];
 
 			co_return con.template upgrade<ws::connection<SocketT, connection_mode>>();
 		}
@@ -177,12 +205,11 @@ namespace cppcoro::ws
 			net::byte_buffer<128> buffer{};
 			{
 				auto rx = co_await net::make_rx_message(con, std::span{ buffer });
-				auto rx_header = co_await rx.receive_header();
 
-				auto const& con_header = rx_header["Connection"];
-				auto const& upgrade_header = rx_header["Upgrade"];
-				auto const& key_header = rx_header["Sec-WebSocket-Key"];
-				auto const& version_header = rx_header["Sec-WebSocket-Version"];
+				auto const& con_header = rx["Connection"];
+				auto const& upgrade_header = rx["Upgrade"];
+				auto const& key_header = rx["Sec-WebSocket-Key"];
+				auto const& version_header = rx["Sec-WebSocket-Version"];
 				if (con_header.empty() or upgrade_header.empty())
 				{
 					spdlog::warn("got a non-websocket connection");
@@ -194,19 +221,21 @@ namespace cppcoro::ws
 					throw std::system_error{ std::make_error_code(std::errc::connection_reset) };
 				}
 				{
-					auto tx = co_await net::make_tx_message(con, std::span{ buffer });
-					std::string accept = rx_header["Sec-WebSocket-Key"];
+					std::string accept = rx["Sec-WebSocket-Key"];
 					accept = crypto::base64::encode(
 						crypto::sha1::hash(accept, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"));
 					spdlog::info("accept-hash: {}", accept);
-					auto tx_header = tx.make_header(
+					http::headers hdrs{
+						{ "Upgrade", "websocket" },
+						{ "Connection", "Upgrade" },
+						{ "Sec-WebSocket-Accept", std::move(accept) },
+					};
+					auto tx = co_await net::make_tx_message(
+						con,
+						std::span{ buffer },
 						http::status::HTTP_STATUS_SWITCHING_PROTOCOLS,
-						http::headers{
-							{ "Upgrade", "websocket" },
-							{ "Connection", "Upgrade" },
-							{ "Sec-WebSocket-Accept", std::move(accept) },
-						});
-					co_await tx.send(std::move(tx_header));
+						std::move(hdrs));
+                    co_await tx.send(std::as_bytes(std::span{ "\r\n" }));
 				}
 			}
 			co_return con.template upgrade<ws::connection<SocketT, connection_mode>>();

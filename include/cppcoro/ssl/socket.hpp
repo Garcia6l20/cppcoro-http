@@ -369,6 +369,8 @@ namespace cppcoro::net::ssl
 				auto result = mbedtls_ssl_handshake(ssl_context_.get());
 				if (result == 0)
 				{
+//					if (mode_ == connection_mode::client)
+//						close_recv();
 					co_return;
 				}
 				else if (result == MBEDTLS_ERR_SSL_WANT_READ)

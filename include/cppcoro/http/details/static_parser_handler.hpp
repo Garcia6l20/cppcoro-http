@@ -249,6 +249,20 @@ namespace cppcoro::http::detail
 			return out.data();
 		}
 
+		auto& headers() {
+			return headers_;
+		}
+        auto& operator[](const std::string& key) {
+            auto it = headers_.find(key);
+			if (it == headers_.end()) {
+				return headers_.emplace(key, "")->second;
+			}
+			else
+            {
+				return it->second;
+			}
+        }
+
 	protected:
 		enum class status
 		{

@@ -91,7 +91,7 @@ TEMPLATE_TEST_CASE(
 				}
 				total_bytes_received += body.size_bytes();
 			}
-			CHECK(*rx.content_length == 100000);
+			CHECK(*rx.content_length == 1000);
 			CHECK(total_bytes_received == 1000);
 		};
 		auto send = [&]() -> task<> {
@@ -102,7 +102,7 @@ TEMPLATE_TEST_CASE(
 					std::span{ buffer },
 					http::method::post,
 					std::string_view{ "/" },
-					size_t(sizeof(buffer) * 1000));
+					size_t{1000});
 
 				for (std::uint64_t i = 0; i < 1000; i += sizeof(buffer))
 				{

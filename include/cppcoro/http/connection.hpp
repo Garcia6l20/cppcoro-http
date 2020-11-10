@@ -71,7 +71,7 @@ namespace cppcoro::http
 
 		http::headers headers;
 
-		[[nodiscard]] bool chunked() const noexcept { return not content_length.has_value(); }
+		bool chunked = false;
 
 		inline auto _header_base()
 		{
@@ -104,11 +104,11 @@ namespace cppcoro::http
 			auto write_header = [&output](const std::string& field, const std::string& value) {
 				output += fmt::format("{}: {}\r\n", field, value);
 			};
-			if (chunked())
+			if (chunked)
 			{
 				this->headers.emplace("Transfer-Encoding", "chunked");
 			}
-			else
+			else if (content_length)
 			{
 				std::array<char, 64> content_length_str{};
 				auto [ptr, error] = std::to_chars(
@@ -159,19 +159,32 @@ namespace cppcoro::http
 		}
 
 		task<> begin_message(
-			method_or_status_t method, std::string_view path, size_t size) requires(is_request)
+			method_or_status_t method, std::string_view path, size_t size, http::headers &&hdrs = {}) requires(is_request)
 		{
-            header_type hdr{ method, path };
+			header_type hdr{ method, path, std::forward<http::headers>(hdrs) };
 			hdr.content_length = size;
 			co_await send(std::move(hdr));
 		}
 
-		task<> begin_message(method_or_status_t status, size_t size) requires(is_response)
+        task<> begin_message(
+            method_or_status_t method, std::string_view path, http::headers &&hdrs = {}) requires(is_request)
+        {
+            header_type hdr{ method, path, std::forward<http::headers>(hdrs) };
+            co_await send(std::move(hdr));
+        }
+
+		task<> begin_message(method_or_status_t status, size_t size, http::headers &&hdrs = {}) requires(is_response)
 		{
-            header_type hdr{ status };
-            hdr.content_length = size;
+			header_type hdr{ status, std::forward<http::headers>(hdrs) };
+			hdr.content_length = size;
 			co_await send(std::move(hdr));
 		}
+
+        task<> begin_message(method_or_status_t status, http::headers &&hdrs = {}) requires(is_response)
+        {
+            header_type hdr{ status, std::forward<http::headers>(hdrs) };
+            co_await send(std::move(hdr));
+        }
 
 	private:
 		parser_t parser_;
@@ -208,7 +221,6 @@ namespace cppcoro::http
 			return header_type{ method_or_status, std::forward<http::headers>(headers) };
 		}
 
-
 		task<> begin_message()
 		{
 			co_await receive_header();
@@ -236,18 +248,20 @@ namespace cppcoro::http
 			}
 		}
 
+		auto& operator[](const std::string& key) { return parser_[key]; }
+
 		std::optional<size_t> content_length{};
 
 	private:
-
-        task<> receive_header()
-        {
-            do
-            {
-                auto bytes_received = co_await base::receive();
-                parser_.parse(std::span{ this->bytes_.data(), bytes_received });
-            } while (not parser_.header_done());
-        }
+		task<> receive_header()
+		{
+			size_t bytes_received = 0;
+			do
+			{
+				bytes_received = co_await base::receive();
+				parser_.parse(std::span{ this->bytes_.data(), bytes_received });
+			} while (not parser_.header_done() or bytes_received == 0);
+		}
 
 		parser_t parser_{};
 	};
@@ -322,7 +336,7 @@ namespace cppcoro::http
 		template<typename ConnectionT>
 		ConnectionT upgrade() noexcept
 		{
-			return ConnectionT{ std::move(this->sock_) };
+			return ConnectionT{ std::move(this->sock_), std::move(this->ct_) };
 		}
 	};
 
