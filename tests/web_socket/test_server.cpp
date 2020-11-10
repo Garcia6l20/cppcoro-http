@@ -36,8 +36,8 @@ struct ssl_test
 TEMPLATE_TEST_CASE(
 	"echo web socket server", "[cppcoro-http][http-server][echo]", base_test
 #if CPPCORO_HTTP_HAS_SSL
-//,
-//    ssl_test
+	,
+	ssl_test
 #endif
 )
 {
@@ -131,8 +131,8 @@ TEMPLATE_TEST_CASE(
 					try
 					{
 						std::uint64_t total_bytes_received = 0;
-						char buffer[64]{};
-						char tx_buffer[64]{};
+						char buffer[100]{};
+						char tx_buffer[100]{};
 						auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
 
 						spdlog::info(
@@ -167,7 +167,6 @@ TEMPLATE_TEST_CASE(
 						}
 					}
 					co_await connection.disconnect();
-					source.request_cancellation();
 				},
 				std::ref(source)
 #if CPPCORO_HTTP_HAS_SSL

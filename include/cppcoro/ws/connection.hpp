@@ -189,10 +189,6 @@ namespace cppcoro::ws
 				http::method::get,
 				std::string_view{ "/" },
 				std::move(hdrs));
-            co_await tx.send(std::as_bytes(std::span{ "\r\n" }));
-			//			auto h = tx.make_header(http::method::post, std::move(headers));
-			//			h.path = "/";
-			//			co_await tx.send(std::move(h));
 			auto rx = co_await net::make_rx_message(con, std::span{ buffer });
 			auto accept = rx["Sec-WebSocket-Accept"];
 
@@ -230,12 +226,11 @@ namespace cppcoro::ws
 						{ "Connection", "Upgrade" },
 						{ "Sec-WebSocket-Accept", std::move(accept) },
 					};
-					auto tx = co_await net::make_tx_message(
+					co_await net::make_tx_message(
 						con,
 						std::span{ buffer },
 						http::status::HTTP_STATUS_SWITCHING_PROTOCOLS,
 						std::move(hdrs));
-                    co_await tx.send(std::as_bytes(std::span{ "\r\n" }));
 				}
 			}
 			co_return con.template upgrade<ws::connection<SocketT, connection_mode>>();

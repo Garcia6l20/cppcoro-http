@@ -33,10 +33,11 @@ struct ssl_test
 #endif
 
 TEMPLATE_TEST_CASE(
-	"echo http server", "[cppcoro-http][http-server][echo]", base_test
+	"echo http server", "[cppcoro-http][http-server][echo]",
+	base_test
 #if CPPCORO_HTTP_HAS_SSL
-//	,
-//	ssl_test
+	,
+	ssl_test
 #endif
 )
 {
@@ -52,7 +53,8 @@ TEMPLATE_TEST_CASE(
 
 	io_service ioSvc{ 512 };
 	constexpr size_t client_count = 25;
-	constexpr size_t message_count = 2;
+	constexpr size_t message_count = 10;
+    constexpr size_t packet_count = 10;
 	const auto endpoint = *net::ip_endpoint::from_string("127.0.0.1:1133");
 
 	cancellation_source source{};
@@ -84,7 +86,9 @@ TEMPLATE_TEST_CASE(
 				while ((body = co_await rx.receive()).size() != 0)
 				{
 					spdlog::debug("client received: {} bytes", body.size_bytes());
-					spdlog::debug("client received: {}", body);
+                    spdlog::debug(
+                        "client received: {}",
+                        std::string_view{ reinterpret_cast<const char*>(body.data()), body.size() });
 					for (std::size_t i = 0; i < body.size_bytes(); ++i)
 					{
 						std::uint64_t byte_index = total_bytes_received + i;
@@ -93,8 +97,9 @@ TEMPLATE_TEST_CASE(
 					}
 					total_bytes_received += body.size_bytes();
 				}
-				CHECK(*rx.content_length == 1000);
-				CHECK(total_bytes_received == 1000);
+                spdlog::debug("client message {}/{} received", ii + 1, message_count);
+				CHECK(*rx.content_length == 100 * packet_count);
+				CHECK(total_bytes_received == 100 * packet_count);
 			}
 		};
 		auto send = [&]() -> task<> {
@@ -106,9 +111,9 @@ TEMPLATE_TEST_CASE(
 					std::span{ buffer },
 					http::method::post,
 					std::string_view{ "/" },
-					size_t{ 1000 });
+					size_t{ packet_count * sizeof(buffer) });
 
-				for (std::uint64_t i = 0; i < 1000; i += sizeof(buffer))
+				for (std::uint64_t i = 0; i < sizeof(buffer) * packet_count; i += sizeof(buffer))
 				{
 					for (std::size_t j = 0; j < sizeof(buffer); ++j)
 					{
@@ -116,13 +121,20 @@ TEMPLATE_TEST_CASE(
 					}
 					auto sent_bytes = co_await tx.send();
 					spdlog::info("client sent {} bytes", sent_bytes);
-					spdlog::debug("client sent: {}", std::span{ buffer, sent_bytes });
+                    spdlog::debug(
+                        "client sent: {}",
+                        std::string_view{ reinterpret_cast<const char*>(&buffer[0]), sent_bytes });
 				}
+                spdlog::debug("client message {}/{} sent", ii + 1, message_count);
 			}
 			con.close_send();
 		};
 
 		co_await when_all(send(), receive());
+//		co_await when_all(send());
+//
+//		using namespace std::chrono_literals;
+//		co_await ioSvc.schedule_after(2s);
 
 		co_await con.disconnect();
 	};
@@ -136,7 +148,8 @@ TEMPLATE_TEST_CASE(
 				[&](server_connection connection) -> task<> {
 					try
 					{
-						char buffer[64]{};
+						char buffer[100]{};
+						size_t message_num = 0;
 						while (true)
 						{
 							auto rx =
@@ -144,6 +157,8 @@ TEMPLATE_TEST_CASE(
 							spdlog::info(
 								"server received header: content-length: {} bytes",
 								rx.content_length.value());
+
+                            ++message_num;
 
 							auto tx = co_await net::make_tx_message(
 								connection,
@@ -155,12 +170,13 @@ TEMPLATE_TEST_CASE(
 
 							while ((body = co_await rx.receive()).size() != 0)
 							{
-								spdlog::info("server received {} bytes", body.size());
-								spdlog::debug("server received: {}", body);
+                                spdlog::debug(
+                                    "server received {} bytes: {}", body.size(),
+                                    std::string_view{ reinterpret_cast<const char*>(body.data()), body.size() });
 								auto bytes_sent = co_await tx.send(body);
 								REQUIRE(bytes_sent == body.size_bytes());
 							}
-							spdlog::info("server message done");
+							spdlog::info("server message {} done", message_num);
 						}
 					}
 					catch (operation_cancelled&)

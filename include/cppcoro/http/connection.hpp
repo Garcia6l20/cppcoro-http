@@ -232,6 +232,10 @@ namespace cppcoro::http
 		{
 			co_await receive_header();
 			content_length = parser_.content_length();
+			if (content_length)
+			{
+				remaining_length = *content_length;
+			}
 		}
 
 		task<net::readable_bytes> receive()
@@ -240,14 +244,21 @@ namespace cppcoro::http
 			{
 				co_return parser_.body();
 			}
-			else if (parser_)
+			else if (parser_ || !remaining_length)
 			{
 				co_return net::readable_bytes{};
 			}
 			else
 			{
-				auto bytes_received = co_await base::receive();
+				auto size = std::min(remaining_length, this->bytes_.size_bytes());
+				auto bytes_received = co_await base::receive(size);
 				parser_.parse(std::span{ this->bytes_.data(), bytes_received });
+				remaining_length -= bytes_received;
+//				spdlog::debug(
+//					">>>>>>>>>> http::connection::receive: {}/{}/{}",
+//					size,
+//					remaining_length,
+//					*content_length);
 				if (parser_.has_body())
 				{
 					co_return parser_.body();
@@ -266,14 +277,15 @@ namespace cppcoro::http
 	private:
 		task<> receive_header()
 		{
-			size_t bytes_received = 0;
+			size_t bytes_received;
 			do
 			{
 				bytes_received = co_await base::receive();
 				parser_.parse(std::span{ this->bytes_.data(), bytes_received });
-			} while (not parser_.header_done() or bytes_received == 0);
+			} while (not parser_.header_done());
 		}
 
+		size_t remaining_length = 0;
 		parser_t parser_{};
 	};
 

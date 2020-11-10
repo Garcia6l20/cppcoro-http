@@ -369,8 +369,7 @@ namespace cppcoro::net::ssl
 				auto result = mbedtls_ssl_handshake(ssl_context_.get());
 				if (result == 0)
 				{
-//					if (mode_ == connection_mode::client)
-//						close_recv();
+                    encrypted_ = true;
 					co_return;
 				}
 				else if (result == MBEDTLS_ERR_SSL_WANT_READ)
@@ -467,11 +466,10 @@ namespace cppcoro::net::ssl
 		 */
 		task<size_t> recv(void* data, size_t size, std::optional<cancellation_token> ct = {})
 		{
-			size_t offset = 0;
 			while (not ct or not ct->is_cancellation_requested())
 			{
 				int result = mbedtls_ssl_read(
-					ssl_context_.get(), reinterpret_cast<uint8_t*>(data) + offset, size - offset);
+					ssl_context_.get(), reinterpret_cast<uint8_t*>(data), size);
 				if (result == MBEDTLS_ERR_SSL_WANT_READ)
 				{
 					assert(to_receive_);  // ensure buffer/len properly setup
@@ -498,11 +496,7 @@ namespace cppcoro::net::ssl
 				}
 				else
 				{
-					offset += result;
-					if (offset >= size || result == 0)
-					{
-						co_return offset;
-					}
+					co_return result;
 				}
 			}
 		}
