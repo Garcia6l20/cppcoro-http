@@ -128,7 +128,7 @@ namespace cppcoro::http::detail
 			header_field_ = std::move(other.header_field_);
 			url_ = std::move(other.url_);
 			body_ = std::move(other.body_);
-            state_ = std::move(other.state_);
+			state_ = std::move(other.state_);
 			headers_ = std::move(other.headers_);
 			parser_->data = this;
 			return *this;
@@ -138,24 +138,23 @@ namespace cppcoro::http::detail
 
 		std::optional<size_t> content_length() const noexcept
 		{
-			//			return parser_->content_length ==
-			//					std::numeric_limits<decltype(parser_->content_length)>::max()
-			//				? std::optional<size_t>{}
-			//				: parser_->content_length;
-			if (headers_.contains("Content-Length"))
-			{
-				auto it = headers_.find("Content-Length");
-				std::span view{ it->second };
-				size_t sz = 0;
-				auto [ptr, error] =
-					std::from_chars(view.data(), view.data() + view.size_bytes(), sz);
-				assert(error == std::errc{});
-				return sz;
-			}
-			else
-			{
-				return {};
-			}
+			return parser_->content_length ==
+					std::numeric_limits<decltype(parser_->content_length)>::max()
+				? std::optional<size_t>{}
+				: parser_->content_length;
+			//			if (headers_.contains("Content-Length"))
+			//			{
+			//				auto it = headers_.find("Content-Length");
+			//				std::span view{ it->second };
+			//				size_t sz = 0;
+			//				auto [ptr, error] =
+			//					std::from_chars(view.data(), view.data() + view.size_bytes(),
+			// sz); 				assert(error == std::errc{}); 				return sz;
+			//			}
+			//			else
+			//			{
+			//				return {};
+			//			}
 		}
 
 		bool header_done() const noexcept { return state_ >= status::on_headers_complete; }
@@ -167,7 +166,17 @@ namespace cppcoro::http::detail
 			return body;
 		}
 
-		bool chunked() const { return state_ != status::on_message_complete && has_body(); }
+		bool chunked() const
+		{
+			if (parser_->uses_transfer_encoding)
+			{
+				return header_at("Transfer-Encoding") == std::string_view{ "chunked" };
+			}
+			else
+			{
+				return false;
+			}
+		}
 
 		operator bool() const { return state_ == status::on_message_complete; }
 
@@ -249,18 +258,31 @@ namespace cppcoro::http::detail
 			return out.data();
 		}
 
-		auto& headers() {
-			return headers_;
-		}
-        auto& operator[](const std::string& key) {
-            auto it = headers_.find(key);
-			if (it == headers_.end()) {
+		auto& headers() { return headers_; }
+		auto& operator[](const std::string& key)
+		{
+			auto it = headers_.find(key);
+			if (it == headers_.end())
+			{
 				return headers_.emplace(key, "")->second;
 			}
 			else
-            {
+			{
 				return it->second;
 			}
+		}
+
+        auto const& header_at(const std::string& key) const
+        {
+            auto it = headers_.find(key);
+            if (it == headers_.end())
+            {
+				throw std::out_of_range("header not found: " + key);
+            }
+            else
+            {
+                return it->second;
+            }
         }
 
 	protected:

@@ -3,115 +3,104 @@
 #include <fmt/format.h>
 
 #include <cppcoro/generator.hpp>
-#include <cppcoro/http/chunk_provider.hpp>
-#include <cppcoro/http/client.hpp>
-#include <cppcoro/http/route_controller.hpp>
-#include <cppcoro/http/server.hpp>
-#include <cppcoro/http/session.hpp>
+#include <cppcoro/http/connection.hpp>
+#include <cppcoro/net/connect.hpp>
+#include <cppcoro/net/serve.hpp>
 #include <cppcoro/on_scope_exit.hpp>
-#include <cppcoro/read_only_file.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
-#include <cppcoro/write_only_file.hpp>
 
 using namespace cppcoro;
 
-template<typename ConfigT>
-struct test_reader_controller;
-
-template<typename ConfigT>
-using test_reader_controller_def = http::route_controller<
-	R"(/read)",  // route definition
-	ConfigT,
-	http::string_request,
-	test_reader_controller>;
-
-template<typename ConfigT>
-struct test_reader_controller : test_reader_controller_def<ConfigT>
-{
-	using test_reader_controller_def<ConfigT>::test_reader_controller_def;
-
-	auto on_get() -> task<http::read_only_file_chunked_response>
-	{
-		co_return http::read_only_file_chunked_response{ http::status::HTTP_STATUS_OK,
-														 http::read_only_file_chunk_provider{
-															 this->service(), __FILE__ } };
-	}
-};
-
-template<typename ConfigT>
-struct test_writer_controller;
-
-template<typename ConfigT>
-using test_writer_controller_def = http::route_controller<
-	R"(/write/([\w\.]+))",  // route definition
-	ConfigT,
-	http::write_only_file_chunked_request,
-	test_writer_controller>;
-
-template<typename ConfigT>
-struct test_writer_controller : test_writer_controller_def<ConfigT>
-{
-	using test_writer_controller_def<ConfigT>::test_writer_controller_def;
-
-	void init_request(std::string_view filename, http::write_only_file_chunked_request& request)
-	{
-		request.body_access.init(filename);
-	}
-
-	task<http::string_response> on_post(std::string_view filename)
-	{
-		co_return http::string_response{ http::status::HTTP_STATUS_OK,
-										 fmt::format("successfully wrote {}", filename) };
-	}
-};
-
 SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]")
 {
-	io_service ios;
+	spdlog::set_level(spdlog::level::debug);
+	spdlog::flush_on(spdlog::level::debug);
 
-	GIVEN("An chunk server")
+	io_service ios{ 128 };
+	cancellation_source cancel{};
+	const auto endpoint = *net::ip_endpoint::from_string("127.0.0.1:4242");
+
+	GIVEN("A chunked echo server/client")
 	{
-		using chunk_server =
-			http::controller_server<http::default_session_config<>, test_reader_controller, test_writer_controller>;
-		chunk_server server{ ios, *net::ip_endpoint::from_string("127.0.0.1:4242") };
+		auto server = [&]() -> task<> {
+			auto _ = on_scope_exit([&] { ios.stop(); });
+			co_await net::serve(
+				ios,
+				endpoint,
+				[](http::server_connection<net::socket> con) -> task<> {
+					try
+					{
+						net::byte_buffer<256> buffer{};
+						net::byte_buffer<256> tx_buffer{};
+						auto rx = co_await net::make_rx_message(con, std::span{ buffer });
+						REQUIRE(rx.chunked);
+						http::headers hdrs{ { "Transfer-Encoding", "chunked" } };
+						auto tx = co_await net::make_tx_message(
+							con,
+							std::span{ tx_buffer },
+							http::status::HTTP_STATUS_OK,
+							std::move(hdrs));
+						net::readable_bytes body;
+						while ((body = co_await rx.receive()).size() != 0)
+						{
+							spdlog::debug(
+								"server received {} bytes: {}",
+								body.size(),
+								std::string_view{ reinterpret_cast<const char*>(body.data()),
+												  body.size() });
+							co_await tx.send(body);
+						}
+                        con.close_send();
+                        co_await con.disconnect();
+					}
+					catch (operation_cancelled&)
+					{
+					}
+				},
+				std::ref(cancel));
+		};
+
+		auto client = [&]() -> task<> {
+			auto _ = on_scope_exit([&] { cancel.request_cancellation(); });
+			auto con = co_await net::connect<http::client_connection<net::socket>>(
+				ios, endpoint, std::ref(cancel));
+
+			size_t total_bytes_sent = 0;
+			net::byte_buffer<256> buffer{};
+			http::headers hdrs{ { "Transfer-Encoding", "chunked" } };
+			auto tx = co_await net::make_tx_message(
+				con, std::span{ buffer }, http::method::post, "/", std::move(hdrs));
+
+			for (std::uint64_t i = 0; i < buffer.size(); ++i)
+			{
+				buffer[i] = std::byte('a' + ((total_bytes_sent + i) % 26));
+			}
+			total_bytes_sent += co_await tx.send();
+			con.close_send();
+
+			auto rx = co_await net::make_rx_message(con, std::span{ buffer });
+			REQUIRE(rx.chunked);
+			net::readable_bytes body;
+			size_t total_bytes_received = 0;
+			while ((body = co_await rx.receive()).size() != 0)
+			{
+				for (std::uint64_t i = 0; i < body.size_bytes(); ++i)
+				{
+					REQUIRE(body[i] == std::byte('a' + ((total_bytes_received + i) % 26)));
+				}
+				total_bytes_received += body.size_bytes();
+			}
+
+			co_await con.disconnect();
+		};
 
 		WHEN("...")
 		{
-			http::client<tcp::ipv4_socket_provider> client{ ios };
-			sync_wait(when_all(
-				[&]() -> task<> {
-					auto _ = on_scope_exit([&] { ios.stop(); });
-					co_await server.serve();
-				}(),
-				[&]() -> task<> {
-					auto _ = on_scope_exit([&] { server.stop(); });
-					auto conn =
-						co_await client.connect(*net::ip_endpoint::from_string("127.0.0.1:4242"));
-					auto f = read_only_file::open(ios, __FILE__);
-					std::string content;
-					content.resize(f.size());
-					auto [body, f_size] = co_await when_all(
-						[&]() -> task<std::string> {
-							auto response = co_await conn.get("/read");
-							REQUIRE(response->status == http::status::HTTP_STATUS_OK);
-							co_return std::string{ co_await response->read_body() };
-						}(),
-						f.read(0, content.data(), content.size()));
-					REQUIRE(body == content);
-					auto response = co_await conn.post("/write/test.txt", std::move(body));
-					REQUIRE(response->status == http::status::HTTP_STATUS_OK);
-					auto f2 = read_only_file::open(ios, "test.txt");
-					std::string content2;
-					content2.resize(f2.size());
-					co_await f2.read(0, content2.data(), content2.size());
-					REQUIRE(content2 == content);  // copied successful
-					co_return;
-				}(),
-				[&]() -> task<> {
-					ios.process_events();
-					co_return;
-				}()));
+			sync_wait(when_all(server(), client(), [&]() -> task<> {
+				ios.process_events();
+				co_return;
+			}()));
 		}
 	}
 }
