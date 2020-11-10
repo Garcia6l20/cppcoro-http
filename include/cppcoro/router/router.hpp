@@ -49,7 +49,7 @@ namespace cppcoro::router
 			};
 
 			//			using no_context_predicate =
-			//cppcoro::detail::parameters_tuple_disable<ContextT>;
+			// cppcoro::detail::parameters_tuple_disable<ContextT>;
 
 			template<typename Predicate = cppcoro::detail::parameters_tuple_all_enabled>
 			using parameters_trait = typename fn_trait::template parameters_tuple<Predicate>;
@@ -77,7 +77,11 @@ namespace cppcoro::router
 					using ParamT = typename fn_trait::template arg<type_idx>::clean_type;
 					if constexpr (cppcoro::detail::specialization_of<ParamT, router::context>)
 					{
-						if constexpr (cppcoro::detail::in_tuple<ArgsT, typename ParamT::type&>)
+						if constexpr (cppcoro::detail::in_tuple<ArgsT, typename ParamT::type>)
+						{
+							std::get<type_idx>(data) = std::get<typename ParamT::type>(args);
+						}
+						else if constexpr (cppcoro::detail::in_tuple<ArgsT, typename ParamT::type&>)
 						{
 							std::get<type_idx>(data) = std::get<typename ParamT::type&>(args);
 						}
@@ -123,8 +127,7 @@ namespace cppcoro::router
 			{
 				if (matches(path))
 				{
-					load_data(
-						context, match_result_, parameters_data_, std::forward<ArgsT>(args));
+					load_data(context, match_result_, parameters_data_, std::forward<ArgsT>(args));
 					return std::apply(fn_, parameters_data_);
 				}
 				else
@@ -149,9 +152,7 @@ namespace cppcoro::router
 		return detail::handler<route, FnT>{ std::forward<FnT>(fn) };
 	}
 
-	template<
-		cppcoro::detail::is_tuple ContextT = std::tuple<>,
-		typename... HandlersT>
+	template<cppcoro::detail::is_tuple ContextT = std::tuple<>, typename... HandlersT>
 	class router
 	{
 		ContextT context_{};
@@ -177,7 +178,9 @@ namespace cppcoro::router
 		{
 			result_t output;
 			cppcoro::detail::for_each(handlers_, [&](auto&& handler) {
-				if (auto result = handler(context_, path, std::make_tuple(std::forward<HandlerArgsT>(args)...)); result)
+				if (auto result = handler(
+						context_, path, std::make_tuple(std::forward<HandlerArgsT>(args)...));
+					result)
 				{
 					output = result.value();
 					return cppcoro::detail::break_;
