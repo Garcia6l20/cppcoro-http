@@ -185,7 +185,6 @@ namespace cppcoro::ws
 
 			auto tx = co_await net::make_tx_message(
 				con,
-				std::span{ buffer },
 				http::method::get,
 				std::string_view{ "/" },
 				std::move(hdrs));
@@ -228,7 +227,6 @@ namespace cppcoro::ws
 					};
 					co_await net::make_tx_message(
 						con,
-						std::span{ buffer },
 						http::status::HTTP_STATUS_SWITCHING_PROTOCOLS,
 						std::move(hdrs));
 				}

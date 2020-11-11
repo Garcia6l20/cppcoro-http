@@ -35,7 +35,7 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]")
 					REQUIRE(rx.chunked);
 					http::headers hdrs{ { "Transfer-Encoding", "chunked" } };
 					auto tx = co_await net::make_tx_message(
-						con, std::span{ tx_buffer }, http::status::HTTP_STATUS_OK, std::move(hdrs));
+						con, http::status::HTTP_STATUS_OK, std::move(hdrs));
 					net::readable_bytes body;
 					while ((body = co_await rx.receive()).size() != 0)
 					{
@@ -58,16 +58,15 @@ SCENARIO("chunked transfers should work", "[cppcoro-http][server][chunked]")
 				ios, endpoint, std::ref(cancel));
 
 			size_t total_bytes_sent = 0;
-			net::byte_buffer<256> buffer{};
 			http::headers hdrs{ { "Transfer-Encoding", "chunked" } };
-			auto tx = co_await net::make_tx_message(
-				con, std::span{ buffer }, http::method::post, "/", std::move(hdrs));
+			auto tx = co_await net::make_tx_message(con, http::method::post, "/", std::move(hdrs));
 
+			net::byte_buffer<256> buffer{};
 			for (std::uint64_t i = 0; i < buffer.size(); ++i)
 			{
 				buffer[i] = std::byte('a' + ((total_bytes_sent + i) % 26));
 			}
-			total_bytes_sent += co_await tx.send();
+			total_bytes_sent += co_await tx.send(std::span{ buffer });
 			con.close_send();
 
 			auto rx = co_await net::make_rx_message(con, std::span{ buffer });

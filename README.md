@@ -6,103 +6,41 @@ It is built on top of [cppcoro](https://github.com/lewissbaker/cppcoro) library.
 ## HTTP Server
 
 ```c++
-template<typename ConfigT>
-struct session : http::session<ConfigT>
-{
-	explicit session(http::server<ConfigT>& server)
-		: http::session<ConfigT>{ server }
-	{
-	}
-	int id = std::rand();
+io_service service{ 128 };
+cancellation_source cancel{};
+
+router::router router{
+    std::make_tuple(),
+    http::route::get<R"(/hello/(\w+))">(
+        [](const std::string& who,
+           router::context<http::server_connection<net::socket>> con) -> task<> {
+            co_await net::make_tx_message(
+                *con, http::status::HTTP_STATUS_OK, fmt::format("Hello {} !", who));
+        }),
+    http::route::get<R"(/add/(\d+)/(\d+))">(
+        [](int lhs,
+           int rhs,
+           router::context<http::server_connection<net::socket>> con) -> task<> {
+            co_await net::make_tx_message(
+                *con, http::status::HTTP_STATUS_OK, fmt::format("{}", lhs + rhs));
+        }),
+    router::on<R"(.*)">(
+        [](router::context<http::server_connection<net::socket>> con) -> task<> {
+            co_await net::make_tx_message(
+                *con, http::status::HTTP_STATUS_NOT_FOUND, "route not found");
+        }),
 };
 
-using config = http::config<session, tcp::ipv4_socket_provider>;
+auto endpoint = *net::ip_endpoint::from_string("127.0.0.1:4242");
 
-template<typename ConfigT>
-struct hello_controller;
-
-template<typename ConfigT>
-using hello_controller_def = http::route_controller<
-	R"(/hello/(\w+))",  // route definition
-	ConfigT,
-	http::string_request,
-	hello_controller>;
-
-template<typename ConfigT>
-struct hello_controller : hello_controller_def<ConfigT>
-{
-	using hello_controller_def<ConfigT>::hello_controller_def;
-	// method handlers
-	auto on_post(std::string_view who) -> task<http::string_response>
-	{
-		co_return http::string_response{ http::status::HTTP_STATUS_OK,
-            fmt::format("post at {}: hello {}",
-                        this->session().id, who) };
-	}
-	auto on_get(std::string_view who) -> task<http::string_response>
-	{
-		co_return http::string_response{ http::status::HTTP_STATUS_OK,
-            fmt::format("get at {}: hello {}",
-                        this->session().id, who) };
-	}
+auto do_serve = [&]() -> task<> {
+    auto _ = on_scope_exit([&] { service.stop(); });
+    co_await http::router::serve(service, endpoint, std::ref(router), std::ref(cancel));
 };
-
-struct hello_chunk_provider : http::abstract_chunk_base
-{
-	std::string_view who;
-	using http::abstract_chunk_base::abstract_chunk_base;
-	hello_chunk_provider(io_service& service, std::string_view who)
-		: http::abstract_chunk_base{ service }
-		, who{ who }
-	{
-	}
-	async_generator<std::string_view> read(size_t)
-	{
-		co_yield "hello\n";
-		co_yield fmt::format("{}\n", who);
-	}
-};
-using hello_chunked_response = http::abstract_response<hello_chunk_provider>;
-
-template<typename ConfigT>
-struct hello_chunk_controller;
-
-template<typename ConfigT>
-using hello_chunk_controller_def = http::route_controller<
-	R"(/chunk/(\w+))",  // route definition
-	ConfigT,
-	http::string_request,
-	hello_chunk_controller>;
-
-template<typename ConfigT>
-struct hello_chunk_controller : hello_chunk_controller_def<ConfigT>
-{
-	using hello_chunk_controller_def<ConfigT>::hello_chunk_controller_def;
-	// method handlers
-	task<hello_chunked_response> on_get(std::string_view who)
-	{
-		co_return hello_chunked_response{ http::status::HTTP_STATUS_OK,
-            hello_chunk_provider{ this->service(), who } };
-	}
-};
-
-int main()
-{
-	io_service service;
-
-	auto do_serve = [&]() -> task<> {
-		auto _ = on_scope_exit([&] { service.stop(); });
-		http::controller_server<config, hello_controller, hello_chunk_controller> server{
-			service, *net::ip_endpoint::from_string("127.0.0.1:4242")
-		};
-		co_await server.serve();
-	};
-	(void)sync_wait(when_all(do_serve(), [&]() -> task<> {
-		service.process_events();
-		co_return;
-	}()));
-	return 0;
-}
+(void)sync_wait(when_all(do_serve(), [&]() -> task<> {
+    service.process_events();
+    co_return;
+}()));
 ```
 
 ## Examples

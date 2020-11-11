@@ -1,10 +1,9 @@
 //#define CPPCORO_SSL_DEBUG
 
-#include <cppcoro/http/chunk_provider.hpp>
-#include <cppcoro/http/config.hpp>
-#include <cppcoro/http/route_controller.hpp>
-#include <cppcoro/http/session.hpp>
+#include <cppcoro/http/connection.hpp>
+#include <cppcoro/http/router.hpp>
 #include <cppcoro/on_scope_exit.hpp>
+#include <cppcoro/read_only_file.hpp>
 #include <cppcoro/sync_wait.hpp>
 #include <cppcoro/when_all.hpp>
 
@@ -17,35 +16,13 @@
 #include <ranges>
 #include <thread>
 
+#include <iostream>
+
 using namespace cppcoro;
 namespace fs = cppcoro::filesystem;
 namespace rng = std::ranges;
 
-using http_config = http::config<http::session, tcp::ipv4_socket_provider>;
-#ifdef CPPCORO_HTTP_MBEDTLS
-#include "cert.hpp"
-using https_config = http::config<http::session, ipv4_ssl_server_provider>;
-#endif
-
-template<typename>
-struct home_controller;
-
-template<typename ConfigT>
-using home_controller_def =
-	http::route_controller<R"(/?([^\s]*)?)", ConfigT, http::string_request, home_controller>;
-
-template<typename ConfigT>
-struct home_controller : home_controller_def<ConfigT>
-{
-	fs::path path_;
-
-	home_controller(io_service& service, std::string_view path)
-		: home_controller_def<ConfigT>{ service }
-		, path_{ path }
-	{
-	}
-
-	static constexpr std::string_view template_ = R"(
+static constexpr std::string_view list_dir_template_ = R"(
 <!DOCTYPE html>
 <html lang="en">
 <head lang="en">
@@ -69,127 +46,57 @@ struct home_controller : home_controller_def<ConfigT>
 </html>
 )";
 
-	fmt::memory_buffer make_body(std::string_view path)
+fmt::memory_buffer make_body(const fs::path& root, std::string_view path)
+{
+	auto link_path = fs::relative(path, root).string();
+	if (link_path.empty())
+		link_path = ".";
+	fmt::print("-- get: {} ({})\n", path, link_path);
+	fmt::memory_buffer out;
+	fmt::format_to(out, R"(<div class="list-group">)");
+	for (auto& p : fs::directory_iterator(root / path))
 	{
-		auto link_path = fs::relative(path, path_).string();
-		if (link_path.empty())
-			link_path = ".";
-		fmt::print("-- get: {} ({})\n", path, link_path);
-		fmt::memory_buffer out;
-		fmt::format_to(out, R"(<div class="list-group">)");
-		for (auto& p : fs::directory_iterator(path_ / path))
-		{
-			fmt::format_to(
-				out,
-				R"(<a class="list-group-item-action" href="/{link_path}">{path}</a>)",
-				fmt::arg("path", fs::relative(p.path(), p.path().parent_path()).c_str()),
-				fmt::arg("link_path", fs::relative(p.path(), path_).c_str()));
-		}
-		fmt::format_to(out, "</div>");
-		return out;
+		fmt::format_to(
+			out,
+			R"(<a class="list-group-item-action" href="/{link_path}">{path}</a>)",
+			fmt::arg("path", fs::relative(p.path(), p.path().parent_path()).c_str()),
+			fmt::arg("link_path", fs::relative(p.path(), root).c_str()));
 	}
+	fmt::format_to(out, "</div>");
+	return out;
+}
 
-	fmt::memory_buffer make_breadcrumb(std::string_view path)
+fmt::memory_buffer make_breadcrumb(std::string_view path)
+{
+	fmt::memory_buffer buff;
+	constexpr std::string_view init = R"(<li class="breadcrumb-item"><a href="/">Home</a></li>)";
+	buff.append(std::begin(init), std::end(init));
+	fs::path p = path;
+	std::vector<std::string> elems = { { fmt::format(
+		R"(<li class="breadcrumb-item active" aria-current="page"><a href="/{}">{}</a></li>)",
+		p.string(),
+		p.filename().c_str()) } };
+	p = p.parent_path();
+	while (not p.filename().empty())
 	{
-		fmt::memory_buffer buff;
-		constexpr std::string_view init =
-			R"(<li class="breadcrumb-item"><a href="/">Home</a></li>)";
-		buff.append(std::begin(init), std::end(init));
-		fs::path p = path;
-		std::vector<std::string> elems = { { fmt::format(
-			R"(<li class="breadcrumb-item active" aria-current="page"><a href="/{}">{}</a></li>)",
+		elems.emplace_back(fmt::format(
+			R"(<li class="breadcrumb-item"><a href="/{}">{}</a></li>)",
 			p.string(),
-			p.filename().c_str()) } };
+			p.filename().c_str()));
 		p = p.parent_path();
-		while (not p.filename().empty())
-		{
-			elems.emplace_back(fmt::format(
-				R"(<li class="breadcrumb-item"><a href="/{}">{}</a></li>)",
-				p.string(),
-				p.filename().c_str()));
-			p = p.parent_path();
-		}
-		for (auto& elem : elems | std::views::reverse)
-		{
-			fmt::format_to(buff, "{}", elem);
-		}
-		return buff;
 	}
-
-	using response_type =
-		std::variant<http::string_response, http::read_only_file_chunked_response>;
-	static_assert(http::detail::is_visitable<response_type>);
-
-	task<response_type> on_get(std::string_view path)
+	for (auto& elem : elems | std::views::reverse)
 	{
-		auto hello = this->session().template cookie<std::string>("Hello", "world");
-		spdlog::info("hello cookie: {}", hello);
-		auto status = http::status::HTTP_STATUS_OK;
-		spdlog::info("link_path: {}", path);
-		if (fs::is_directory(path_ / path))
-		{
-			spdlog::info("get directory: {}", path);
-			fmt::memory_buffer body;
-			try
-			{
-				body = make_body(path);
-			}
-			catch (fs::filesystem_error& error)
-			{
-				body = fmt::memory_buffer{};
-				fmt::format_to(body, R"(<div><h6>Not found</h6><p>{}</p></div>)", error.what());
-				status = http::status::HTTP_STATUS_NOT_FOUND;
-			}
-			auto breadcrumb = make_breadcrumb(path);
-			co_return http::string_response{
-				status,
-				fmt::format(
-					template_,
-					fmt::arg("title", path),
-					fmt::arg("body", std::string_view{ body.data(), body.size() }),
-					fmt::arg("path", path),
-					fmt::arg(
-						"breadcrumb", std::string_view{ breadcrumb.data(), breadcrumb.size() })),
-				http::headers{ { "Content-Type", "text/html" } }
-			};
-		}
-		else
-		{
-			spdlog::info("get file: {}", path);
-			try
-			{
-				co_return http::read_only_file_chunked_response{
-					http::status::HTTP_STATUS_OK,
-					http::read_only_file_chunk_provider{ this->service(), path_ / path }
-				};
-			}
-			catch (fs::filesystem_error& error)
-			{
-				spdlog::error("error {}", error.what());
-				if (error.code() == std::errc::no_such_file_or_directory)
-				{
-					co_return http::string_response{ http::status::HTTP_STATUS_NOT_FOUND,
-													 { error.what() } };
-				}
-				else
-				{
-					co_return http::string_response{
-						http::status::HTTP_STATUS_INTERNAL_SERVER_ERROR, { error.what() }
-					};
-				}
-			}
-		}
+		fmt::format_to(buff, "{}", elem);
 	}
-};
-
-template<typename ConfigT = http_config>
-using simple_co_server = http::controller_server<ConfigT, home_controller>;
+	return buff;
+}
 
 int main(int argc, char** argv)
 {
 	bool debug = false;
 	std::string endpoint_input = "127.0.0.1:4242";
-	std::string path = ".";
+	std::string root = ".";
 	bool with_ssl = false;
 	uint32_t thread_count = std::thread::hardware_concurrency() - 1;
 	bool help = false;
@@ -198,7 +105,7 @@ int main(int argc, char** argv)
 #ifdef CPPCORO_HTTP_MBEDTLS
 		lyra::opt(with_ssl)["-s"]["--ssl"]("Use ssl connection") |
 #endif
-		lyra::arg(endpoint_input, "endpoint")("Server endpoint") | lyra::arg(path, "path")("Path");
+		lyra::arg(endpoint_input, "endpoint")("Server endpoint") | lyra::arg(root, "path")("Path");
 	auto result = cli.parse({ argc, argv });
 	if (!result)
 	{
@@ -215,50 +122,115 @@ int main(int argc, char** argv)
 	if (debug)
 	{
 		spdlog::set_level(spdlog::level::debug);
-		http::logging::log_level = spdlog::level::debug;
+		//		http::logging::log_level = spdlog::level::debug;
 	}
 
 	io_service service{ 256 };
+	cancellation_source cancel{};
 	auto server_endpoint = net::ip_endpoint::from_string(endpoint_input);
 
 	std::clamp(thread_count, 1u, 256u);
 
 	std::string scheme = "http";
 #ifdef CPPCORO_HTTP_MBEDTLS
-	if (with_ssl) {
-        scheme = "https";
+	if (with_ssl)
+	{
+		scheme = "https";
 	}
 #endif
 
 	spdlog::info(
-		"servicing {} at {}://{} on {} threads", path, scheme, server_endpoint->to_string(), thread_count + 1);
+		"servicing {} at {}://{} on {} threads",
+		root,
+		scheme,
+		server_endpoint->to_string(),
+		thread_count + 1);
 
 	std::vector<std::thread> tp{ thread_count };
 
 	rng::generate(tp, [&service] {
 		return std::thread{ [&service]() mutable { service.process_events(); } };
 	});
-	auto serve = [&]<http::is_config ConfigT>(std::type_identity<ConfigT> &&) -> cppcoro::task<> {
-      simple_co_server<ConfigT> server{ service,
-                                 *server_endpoint,
-                                 std::string_view{ path } };
-      co_await server.serve();
+
+	fs::path root_path = root;
+
+	router::router router{
+		std::make_tuple(),
+		http::route::get<R"(/(.*))">(
+			[&](std::string_view path,
+				router::context<http::server_connection<net::socket>> con) -> task<> {
+				if (fs::is_directory(root_path / path))
+				{
+					fmt::memory_buffer body;
+					try
+					{
+						body = make_body(root, path);
+					}
+					catch (fs::filesystem_error& error)
+					{
+						co_await net::make_tx_message(
+							*con,
+							http::status::HTTP_STATUS_NOT_FOUND,
+							fmt::format(R"(<div><h6>Not found</h6><p>{}</p></div>)", error.what()));
+					}
+					auto breadcrumb = make_breadcrumb(path);
+					http::headers hdrs{ { "Content-Type", "text/html" } };
+					co_await net::make_tx_message(
+						*con,
+						http::status::HTTP_STATUS_OK,
+						fmt::format(
+							list_dir_template_,
+							fmt::arg("title", path),
+							fmt::arg("body", std::string_view{ body.data(), body.size() }),
+							fmt::arg("path", path),
+							fmt::arg(
+								"breadcrumb",
+								std::string_view{ breadcrumb.data(), breadcrumb.size() })),
+						std::move(hdrs));
+				}
+				else
+				{
+					try
+					{
+						auto file = read_only_file::open(
+							service,
+							root_path / path,
+							file_share_mode::read,
+							file_buffering_mode::default_);
+						net::byte_buffer<256> buffer{};
+						http::headers hdrs{ { "Transfer-Encoding", "chunked" } };
+						auto tx = co_await net::make_tx_message(
+							*con, http::status::HTTP_STATUS_OK, std::move(hdrs));
+
+						size_t read_size;
+						uint64_t offset = 0;
+						do
+						{
+							read_size = co_await file.read(offset, buffer.data(), buffer.size());
+							offset += read_size;
+							co_await tx.send(std::span{ buffer.data(), read_size });
+						} while (read_size);
+					}
+					catch (std::system_error& error)
+					{
+						co_await net::make_tx_message(
+							*con,
+							http::status::HTTP_STATUS_NOT_FOUND,
+							fmt::format(R"(<div><h6>Not found</h6><p>{}</p></div>)", error.what()));
+					}
+				}
+			}),
 	};
+
+	auto do_serve = [&]() -> task<> {
+		auto _ = on_scope_exit([&] { service.stop(); });
+		co_await http::router::serve(service, *server_endpoint, std::ref(router), std::ref(cancel));
+	};
+
 	(void)sync_wait(when_all(
 		[&]() -> task<> {
 			auto _ = on_scope_exit([&] { service.stop(); });
-#ifdef CPPCORO_HTTP_MBEDTLS
-			if (with_ssl)
-			{
-                co_await serve(std::type_identity<https_config>{});
-			}
-			else
-			{
-#endif
-                co_await serve(std::type_identity<http_config>{});
-#ifdef CPPCORO_HTTP_MBEDTLS
-			}
-#endif
+			co_await do_serve();
 		}(),
 		[&]() -> task<> {
 			service.process_events();

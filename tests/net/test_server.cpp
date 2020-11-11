@@ -90,16 +90,16 @@ TEMPLATE_TEST_CASE(
 			std::uint8_t buffer[100]{};
 			for (std::uint64_t i = 0; i < 1000; i += sizeof(buffer))
 			{
-				auto message = co_await net::make_tx_message(con, std::span{ buffer });
+				auto message = co_await net::make_tx_message(con);
 				for (std::size_t j = 0; j < sizeof(buffer); ++j)
 				{
 					buffer[j] = 'a' + ((i + j) % 26);
 				}
-				auto sent_bytes = co_await message.send();
+				auto sent_bytes = co_await message.send(std::as_bytes(std::span{ buffer }));
 				spdlog::info("client sent {} bytes", sent_bytes);
 				spdlog::debug("client sent: {}", std::span{ buffer, sent_bytes });
 			}
-            con.close_send();
+			con.close_send();
 		};
 
 		co_await when_all(send(), receive());
@@ -114,18 +114,17 @@ TEMPLATE_TEST_CASE(
 				ioSvc,
 				endpoint,
 				[&](server_connection connection) -> task<> {
-                    size_t bytes_received;
-                    char buffer[64]{};
-                    auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
-                    auto tx = co_await net::make_tx_message(connection, std::span{ buffer });
-                    while ((bytes_received = co_await rx.receive()) != 0)
-                    {
-                        spdlog::info("server received {} bytes", bytes_received);
-                        spdlog::debug(
-                            "server received: {}", std::span{ buffer, bytes_received });
-                        auto bytes_sent = co_await tx.send(bytes_received);
-                        REQUIRE(bytes_sent == bytes_received);
-                    }
+					size_t bytes_received;
+					char buffer[64]{};
+					auto rx = co_await net::make_rx_message(connection, std::span{ buffer });
+					auto tx = co_await net::make_tx_message(connection);
+					while ((bytes_received = co_await rx.receive()) != 0)
+					{
+						spdlog::info("server received {} bytes", bytes_received);
+						spdlog::debug("server received: {}", std::span{ buffer, bytes_received });
+						auto bytes_sent = co_await tx.send(std::span{ buffer, bytes_received });
+						REQUIRE(bytes_sent == bytes_received);
+					}
 					spdlog::info("closing server connection");
 					co_await connection.disconnect();
 				},

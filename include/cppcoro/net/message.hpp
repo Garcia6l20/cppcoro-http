@@ -87,7 +87,8 @@ namespace cppcoro::net
 		message(message&&) = default;
 		message(const message&) = delete;
 
-		task<size_t> send(readable_bytes bytes)
+		template<typename T, size_t extent>
+		task<size_t> send(std::span<T, extent> bytes)
 		{
 			std::size_t bytesSent = 0;
 			do

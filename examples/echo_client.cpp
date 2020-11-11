@@ -48,7 +48,7 @@ int main(const int argc, const char** argv)
 
 	auto post = [](auto& con, std::string data, std::string path = "/") -> task<std::string> {
 		auto tx = co_await net::make_tx_message(
-			con, std::span{ data }, http::method::post, std::string_view{ path }, data.size());
+			con, http::method::post, std::string_view{ path }, data.size());
 		co_await tx.send(std::as_bytes(std::span{ data }));
 		std::array<char, 256> buffer{};
 		auto rx = co_await net::make_rx_message(con, std::span{ buffer });

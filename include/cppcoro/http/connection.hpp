@@ -158,32 +158,31 @@ namespace cppcoro::http
 			return base::send(std::as_writable_bytes(std::span{ header_data_ }));
 		}
 
-		task<size_t> send() { return send(this->bytes_); }
-
 		template<typename T, size_t extent = std::dynamic_extent>
 		task<size_t> send(std::span<T, extent> data)
 		{
 			if (chunked)
 			{
+				size_t bytes_sent = 0;
 				auto size_str = fmt::format("{:x}\r\n", data.size_bytes());
-				co_await base::send(std::as_bytes(std::span{ size_str }));
+				co_await base::send(std::span{ size_str });
 				if (data.size_bytes())
 				{
-					co_await base::send(std::as_bytes(data));
+                    bytes_sent = co_await base::send(data);
 				}
-				co_return co_await base::send(
-					std::as_bytes(std::span{ std::string_view{ "\r\n" } }));
+				constexpr auto chunk_end = std::string_view{ "\r\n" };
+                co_await base::send(std::span{ chunk_end });
+				co_return bytes_sent;
 			}
 			else
 			{
-				co_return co_await base::send(std::as_bytes(data));
+				co_return co_await base::send(data);
 			}
 		}
 
 		void init(header_type hdr)
 		{
-			if (auto it = hdr.headers.find("Transfer-Encoding");
-				it != hdr.headers.end())
+			if (auto it = hdr.headers.find("Transfer-Encoding"); it != hdr.headers.end())
 			{
 				chunked = it->second == "chunked";
 			}
@@ -211,17 +210,17 @@ namespace cppcoro::http
 			co_await send(std::move(hdr));
 		}
 
-        task<> begin_message(
-            method_or_status_t status,
-            std::string body,
-            http::headers&& hdrs = {}) requires(is_response)
-        {
-            header_type hdr{ status, std::forward<http::headers>(hdrs) };
+		task<> begin_message(
+			method_or_status_t status,
+			std::string body,
+			http::headers&& hdrs = {}) requires(is_response)
+		{
+			header_type hdr{ status, std::forward<http::headers>(hdrs) };
 			hdr.content_length = body.size();
-            init(hdr);
-            co_await send(std::move(hdr));
-            co_await send(std::as_bytes(std::span{body}));
-        }
+			init(hdr);
+			co_await send(std::move(hdr));
+			co_await send(std::as_bytes(std::span{ body }));
+		}
 
 		task<> begin_message(
 			method_or_status_t status, size_t size, http::headers&& hdrs = {}) requires(is_response)
@@ -280,7 +279,8 @@ namespace cppcoro::http
 		{
 			if (parser_.has_body())
 			{
-				co_return parser_.body();;
+				co_return parser_.body();
+				;
 			}
 			else if (parser_ or (not chunked and not remaining_length))
 			{
@@ -302,19 +302,19 @@ namespace cppcoro::http
 			else
 			{
 				auto size = std::min(remaining_length, this->bytes_.size_bytes());
-//				spdlog::debug(
-//					">>>>>>>>>> http::{}_connection::receiving {} bytes...",
-//					mode == net::connection_mode::client ? "client" : "server",
-//					size);
+				//				spdlog::debug(
+				//					">>>>>>>>>> http::{}_connection::receiving {} bytes...",
+				//					mode == net::connection_mode::client ? "client" : "server",
+				//					size);
 				auto bytes_received = co_await base::receive(size);
 				parser_.parse(std::span{ this->bytes_.data(), bytes_received });
 				remaining_length -= bytes_received;
-//				spdlog::debug(
-//					">>>>>>>>>> http::{}_connection::receive: {}/{}/{}",
-//					mode == net::connection_mode::client ? "client" : "server",
-//					size,
-//					remaining_length,
-//					*content_length);
+				//				spdlog::debug(
+				//					">>>>>>>>>> http::{}_connection::receive: {}/{}/{}",
+				//					mode == net::connection_mode::client ? "client" : "server",
+				//					size,
+				//					remaining_length,
+				//					*content_length);
 				if (parser_.has_body())
 				{
 					co_return parser_.body();
@@ -328,13 +328,9 @@ namespace cppcoro::http
 
 		auto& operator[](const std::string& key) { return parser_[key]; }
 
-		http::status status() requires (is_response) {
-			return parser_.status_code_or_method();
-		}
+		http::status status() requires(is_response) { return parser_.status_code_or_method(); }
 
-        http::status method() requires (is_request) {
-            return parser_.status_code_or_method();
-        }
+		http::status method() requires(is_request) { return parser_.status_code_or_method(); }
 
 		std::optional<size_t> content_length{};
 		bool chunked = false;
@@ -343,9 +339,9 @@ namespace cppcoro::http
 	private:
 		task<> receive_header()
 		{
-//			spdlog::debug(
-//				">>>>>>>>>> http::{}_connection::receive_header...",
-//				mode == net::connection_mode::client ? "client" : "server");
+			//			spdlog::debug(
+			//				">>>>>>>>>> http::{}_connection::receive_header...",
+			//				mode == net::connection_mode::client ? "client" : "server");
 			size_t bytes_received;
 			do
 			{
@@ -363,7 +359,7 @@ namespace cppcoro::http
 				remaining_length = *content_length;
 			}
 			path = parser_.url();
-            remaining_length -= parser_.body_size();
+			remaining_length -= parser_.body_size();
 		}
 
 		size_t remaining_length = 0;

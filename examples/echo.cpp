@@ -63,7 +63,6 @@ int main(const int argc, const char** argv)
 						spdlog::info("empty content length");
 						co_await net::make_tx_message(
 							con,
-							std::as_writable_bytes(std::span{ buffer }),
 							http::status::HTTP_STATUS_OK);
 					}
 					else
@@ -71,7 +70,6 @@ int main(const int argc, const char** argv)
 						spdlog::info("receiving {} bytes", *rx.content_length);
 						auto tx = co_await net::make_tx_message(
 							con,
-							std::as_writable_bytes(std::span{ buffer }),
 							http::status::HTTP_STATUS_OK,
 							*rx.content_length);
 						net::readable_bytes body{};

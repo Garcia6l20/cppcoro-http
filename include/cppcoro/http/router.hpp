@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cppcoro/router/router.hpp>
+#include <cppcoro/net/serve.hpp>
 
 namespace cppcoro::http
 {
@@ -60,4 +61,26 @@ namespace cppcoro::http
 			};
 		}
 	}  // namespace route
+
+	namespace router
+	{
+		template <typename SocketT = net::socket, size_t rx_size = 256, typename ...Args>
+		task<> serve(
+			io_service& service,
+			const net::ip_endpoint& endpoint,
+			auto router,
+            Args&&...args)
+		{
+            co_await net::serve(
+                service,
+                endpoint,
+                [&](http::server_connection<SocketT> con) -> task<> {
+                  net::byte_buffer<rx_size> rx_buffer{};
+                  auto rx = co_await net::make_rx_message(con, std::span{ rx_buffer });
+                  co_await std::get<task<>>(
+                      router(rx.path, std::ref(rx), std::ref(con), http::method::get));
+                },
+                std::forward<Args>(args)...);
+		}
+	}  // namespace router
 }  // namespace cppcoro::http

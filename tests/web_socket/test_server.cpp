@@ -99,7 +99,7 @@ TEMPLATE_TEST_CASE(
 		auto send = [&]() -> task<> {
 			std::uint64_t total_bytes_sent = 0;
 			std::uint8_t buffer[100]{};
-			auto tx = co_await net::make_tx_message(con, std::span{ buffer }, 1000);
+			auto tx = co_await net::make_tx_message(con, 1000);
 
 			for (std::uint64_t i = 0; i < 1000; i += sizeof(buffer))
 			{
@@ -107,7 +107,7 @@ TEMPLATE_TEST_CASE(
 				{
 					buffer[j] = 'a' + ((i + j) % 26);
 				}
-				auto sent_bytes = co_await tx.send();
+				auto sent_bytes = co_await tx.send(std::span{buffer});
 				total_bytes_sent += sent_bytes;
 				spdlog::info("client sent {} bytes", sent_bytes);
 				spdlog::debug(
@@ -139,7 +139,7 @@ TEMPLATE_TEST_CASE(
 						"server received header: payload-length: {} bytes", *rx.payload_length);
 
 					auto tx = co_await net::make_tx_message(
-						connection, std::span{ tx_buffer }, *rx.payload_length);
+						connection, *rx.payload_length);
 
 					net::readable_bytes body{};
 
