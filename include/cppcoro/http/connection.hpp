@@ -249,9 +249,6 @@ namespace cppcoro::http
 		using base = net::message<SocketT, net::message_direction::incoming>;
 		using base::base;
 
-		//		using base::receive;
-		//		using base::send;
-
 		static constexpr bool is_request = mode == net::connection_mode::server;
 		static constexpr bool is_response = mode == net::connection_mode::client;
 
@@ -271,7 +268,7 @@ namespace cppcoro::http
 		{
 			if (parser_.has_body())
 			{
-				co_return parser_.body();
+				co_return parser_.body();;
 			}
 			else if (parser_ or (not chunked and not remaining_length))
 			{
@@ -293,14 +290,19 @@ namespace cppcoro::http
 			else
 			{
 				auto size = std::min(remaining_length, this->bytes_.size_bytes());
+//				spdlog::debug(
+//					">>>>>>>>>> http::{}_connection::receiving {} bytes...",
+//					mode == net::connection_mode::client ? "client" : "server",
+//					size);
 				auto bytes_received = co_await base::receive(size);
 				parser_.parse(std::span{ this->bytes_.data(), bytes_received });
 				remaining_length -= bytes_received;
-				//				spdlog::debug(
-				//					">>>>>>>>>> http::connection::receive: {}/{}/{}",
-				//					size,
-				//					remaining_length,
-				//					*content_length);
+//				spdlog::debug(
+//					">>>>>>>>>> http::{}_connection::receive: {}/{}/{}",
+//					mode == net::connection_mode::client ? "client" : "server",
+//					size,
+//					remaining_length,
+//					*content_length);
 				if (parser_.has_body())
 				{
 					co_return parser_.body();
@@ -321,6 +323,9 @@ namespace cppcoro::http
 	private:
 		task<> receive_header()
 		{
+//			spdlog::debug(
+//				">>>>>>>>>> http::{}_connection::receive_header...",
+//				mode == net::connection_mode::client ? "client" : "server");
 			size_t bytes_received;
 			do
 			{
@@ -337,7 +342,8 @@ namespace cppcoro::http
 			{
 				remaining_length = *content_length;
 			}
-            path = parser_.url();
+			path = parser_.url();
+            remaining_length -= parser_.body_size();
 		}
 
 		size_t remaining_length = 0;

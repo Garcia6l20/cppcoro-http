@@ -138,35 +138,35 @@ namespace cppcoro::http::detail
 
 		std::optional<size_t> content_length() const noexcept
 		{
-			return parser_->content_length ==
-					std::numeric_limits<decltype(parser_->content_length)>::max()
-				? std::optional<size_t>{}
-				: parser_->content_length;
-			//			if (headers_.contains("Content-Length"))
-			//			{
-			//				auto it = headers_.find("Content-Length");
-			//				std::span view{ it->second };
-			//				size_t sz = 0;
-			//				auto [ptr, error] =
-			//					std::from_chars(view.data(), view.data() + view.size_bytes(),
-			// sz); 				assert(error == std::errc{}); 				return sz;
-			//			}
-			//			else
-			//			{
-			//				return {};
-			//			}
+			//			return parser_->content_length ==
+			//					std::numeric_limits<decltype(parser_->content_length)>::max()
+			//				? std::optional<size_t>{}
+			//				: parser_->content_length;
+			if (headers_.contains("Content-Length"))
+			{
+				auto it = headers_.find("Content-Length");
+				std::span view{ it->second };
+				size_t sz = 0;
+				auto [ptr, error] =
+					std::from_chars(view.data(), view.data() + view.size_bytes(), sz);
+				assert(error == std::errc{});
+				return sz;
+			}
+			else
+			{
+				return {};
+			}
 		}
 
-		bool header_done() const noexcept { return state_ >= status::on_headers_complete; }
-		bool has_body() const noexcept { return body_.size(); }
-		auto body()
+		[[nodiscard]] bool header_done() const noexcept
 		{
-			auto body = body_;
-			body_ = {};
-			return body;
+			return state_ >= status::on_headers_complete;
 		}
+		[[nodiscard]] bool has_body() const noexcept { return body_.size(); }
+		[[nodiscard]] auto body() { return std::exchange(body_, {}); }
+		[[nodiscard]] size_t body_size() const { return body_.size_bytes(); }
 
-		bool chunked() const
+		[[nodiscard]] bool chunked() const
 		{
 			if (parser_->uses_transfer_encoding)
 			{
@@ -184,6 +184,9 @@ namespace cppcoro::http::detail
 		bool parse(std::span<T, extent> data)
 		{
 			body_ = {};
+//			spdlog::debug(
+//				"parsing: {}",
+//				std::string_view{ reinterpret_cast<const char*>(data.data()), data.size_bytes() });
 			const auto count = execute_parser(
 				reinterpret_cast<const char*>(std::as_bytes(data).data()), data.size_bytes());
 			if (count < data.size_bytes())
@@ -272,18 +275,18 @@ namespace cppcoro::http::detail
 			}
 		}
 
-        auto const& header_at(const std::string& key) const
-        {
-            auto it = headers_.find(key);
-            if (it == headers_.end())
-            {
+		auto const& header_at(const std::string& key) const
+		{
+			auto it = headers_.find(key);
+			if (it == headers_.end())
+			{
 				throw std::out_of_range("header not found: " + key);
-            }
-            else
-            {
-                return it->second;
-            }
-        }
+			}
+			else
+			{
+				return it->second;
+			}
+		}
 
 	protected:
 		enum class status
