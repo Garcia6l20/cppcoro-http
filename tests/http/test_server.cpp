@@ -110,7 +110,6 @@ TEMPLATE_TEST_CASE(
 			{
 				auto tx = co_await net::make_tx_message(
 					con,
-					std::span{ buffer },
 					http::method::post,
 					std::string_view{ "/" },
 					size_t{ packet_count * sizeof(buffer) });
@@ -121,7 +120,7 @@ TEMPLATE_TEST_CASE(
 					{
 						buffer[j] = 'a' + ((i + j) % 26);
 					}
-					auto sent_bytes = co_await tx.send();
+					auto sent_bytes = co_await tx.send(std::span{ buffer });
 					spdlog::info("client sent {} bytes", sent_bytes);
 					spdlog::debug(
 						"client sent: {}",
@@ -161,7 +160,6 @@ TEMPLATE_TEST_CASE(
 
 						auto tx = co_await net::make_tx_message(
 							connection,
-							std::span{ buffer },
 							http::status::HTTP_STATUS_OK,
 							*rx.content_length);
 

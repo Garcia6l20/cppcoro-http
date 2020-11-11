@@ -27,4 +27,7 @@ namespace cppcoro
 			std::same_as<ReturnT, typename awaitable_traits<T>::await_result_t>);
 	};
 
+	template <typename T, typename U>
+	concept decays_to = std::same_as<std::decay_t<T>, U>;
+
 }  // namespace cppcoro

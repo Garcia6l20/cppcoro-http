@@ -37,7 +37,7 @@ add_tests(
   net/test_server.cpp
   http/test_server.cpp
 #  http/test_requests.cpp
-#  http/test_router.cpp
+  http/test_router.cpp
 #  http/test_route_controller.cpp
   http/test_chunked.cpp
 #  http/test_uri.cpp

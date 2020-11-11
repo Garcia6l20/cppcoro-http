@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cppcoro/net/make_socket.hpp>
 #include <cppcoro/http/connection.hpp>
+#include <cppcoro/net/make_socket.hpp>
 
 namespace cppcoro::net
 {
@@ -101,9 +101,18 @@ namespace cppcoro::net
 					{
 						return cancellation_token{ std::get<cancellation_token>(args) };
 					}
-					else
+					else if constexpr (
+						cppcoro::detail::
+							in_tuple<args_t, std::reference_wrapper<cancellation_source>> or
+						cppcoro::detail::in_tuple<args_t, cancellation_source&>)
 					{
 						return std::get<cancellation_source&>(args).token();
+					}
+					else
+					{
+						static_assert(
+							always_false_v<args_t>,
+							"missing cancellation token or cancellation source ref");
 					}
 				};
 				co_return ConnectionT{

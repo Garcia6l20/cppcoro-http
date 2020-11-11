@@ -20,15 +20,15 @@ namespace cppcoro::net
 		incoming,
 		outgoing
 	};
-	template<is_socket SocketT, message_direction direction>
-	struct message
-	{
-		using bytes_type = std::conditional_t<
-			direction == message_direction::incoming,
-			writeable_bytes,
-			readable_bytes>;
 
-		message(SocketT& socket, bytes_type bytes, cancellation_token ct) noexcept
+	template<is_socket SocketT, message_direction direction>
+	struct message;
+
+	template<is_socket SocketT>
+	struct message<SocketT, message_direction::incoming>
+	{
+
+		message(SocketT& socket, writeable_bytes bytes, cancellation_token ct) noexcept
 			: socket_{ socket }
 			, ct_{ std::move(ct) }
 			, bytes_{ bytes }
@@ -38,19 +38,7 @@ namespace cppcoro::net
 		message(message&&) = default;
 		message(const message&) = delete;
 
-		task<size_t> send(size_t size = std::numeric_limits<size_t>::max()) requires(
-			direction == message_direction::outgoing)
-		{
-			if (size == std::numeric_limits<size_t>::max())
-			{
-				size = bytes_.size();
-			}
-			assert(size <= bytes_.size());
-			return send(std::span{ bytes_.data(), size });
-		}
-
-		task<size_t> receive(size_t size = std::numeric_limits<size_t>::max()) requires(
-			direction == message_direction::incoming)
+		task<size_t> receive(size_t size = std::numeric_limits<size_t>::max())
 		{
 			if (size == std::numeric_limits<size_t>::max())
 			{
@@ -58,17 +46,6 @@ namespace cppcoro::net
 			}
 			assert(size <= bytes_.size());
 			return receive(std::span{ bytes_.data(), size });
-		}
-
-		task<size_t> send(readable_bytes bytes)
-		{
-			std::size_t bytesSent = 0;
-			do
-			{
-				bytesSent += co_await socket_.send(
-					bytes.data() + bytesSent, bytes.size_bytes() - bytesSent, ct_);
-			} while (bytesSent < bytes.size_bytes());
-			co_return bytesSent;
 		}
 
 		task<size_t> receive_all(writeable_bytes bytes)
@@ -91,9 +68,39 @@ namespace cppcoro::net
 			co_return co_await socket_.recv(bytes.data(), bytes.size_bytes(), ct_);
 		}
 
-		SocketT& socket_;
-		cancellation_token ct_;
-		bytes_type bytes_;
+	protected:
+        SocketT& socket_;
+        cancellation_token ct_;
+		writeable_bytes bytes_;
+	};
+	template<is_socket SocketT>
+	struct message<SocketT, message_direction::outgoing>
+	{
+		using bytes_type = readable_bytes;
+
+		message(SocketT& socket, cancellation_token ct) noexcept
+			: socket_{ socket }
+			, ct_{ std::move(ct) }
+		{
+		}
+
+		message(message&&) = default;
+		message(const message&) = delete;
+
+		task<size_t> send(readable_bytes bytes)
+		{
+			std::size_t bytesSent = 0;
+			do
+			{
+				bytesSent += co_await socket_.send(
+					bytes.data() + bytesSent, bytes.size_bytes() - bytesSent, ct_);
+			} while (bytesSent < bytes.size_bytes());
+			co_return bytesSent;
+		}
+
+    protected:
+        SocketT& socket_;
+        cancellation_token ct_;
 	};
 
 	template<typename ConnectionTypeT>
@@ -129,22 +136,21 @@ namespace cppcoro::net
 		}
 		else if constexpr (sizeof...(ArgsT))
 		{
-			static_assert(cppcoro::always_false_v<MessageT>, "Cannot bind to requested message initializer");
+			static_assert(
+				cppcoro::always_false_v<MessageT>, "Cannot bind to requested message initializer");
 		}
 		co_return msg;
 	}
 	template<
 		is_connection ConnectionTypeT,
-		typename T,
-		size_t extent = std::dynamic_extent,
 		typename MessageT =
 			typename ConnectionTypeT::template message_type<message_direction::outgoing>,
 		typename... ArgsT>
 	task<MessageT>
-	make_tx_message(ConnectionTypeT& connection, std::span<T, extent> buffer, ArgsT&&... args)
+	make_tx_message(ConnectionTypeT& connection, ArgsT&&... args)
 	{
 		auto msg =
-			MessageT{ connection.socket(), std::as_writable_bytes(buffer), connection.token() };
+			MessageT{ connection.socket(), connection.token() };
 		if constexpr (has_begin_message<MessageT, ArgsT...>)
 		{
 			co_await msg.begin_message(std::forward<ArgsT>(args)...);

@@ -182,9 +182,9 @@ namespace cppcoro::http
 
 		void init(header_type hdr)
 		{
-			if (hdr.headers.contains("Transfer-Encoding"))
+			if (auto it = hdr.headers.find("Transfer-Encoding");
+				it != hdr.headers.end())
 			{
-				auto it = hdr.headers.find("Transfer-Encoding");
 				chunked = it->second == "chunked";
 			}
 		}
@@ -210,6 +210,18 @@ namespace cppcoro::http
 			init(hdr);
 			co_await send(std::move(hdr));
 		}
+
+        task<> begin_message(
+            method_or_status_t status,
+            std::string body,
+            http::headers&& hdrs = {}) requires(is_response)
+        {
+            header_type hdr{ status, std::forward<http::headers>(hdrs) };
+			hdr.content_length = body.size();
+            init(hdr);
+            co_await send(std::move(hdr));
+            co_await send(std::as_bytes(std::span{body}));
+        }
 
 		task<> begin_message(
 			method_or_status_t status, size_t size, http::headers&& hdrs = {}) requires(is_response)
@@ -315,6 +327,14 @@ namespace cppcoro::http
 		}
 
 		auto& operator[](const std::string& key) { return parser_[key]; }
+
+		http::status status() requires (is_response) {
+			return parser_.status_code_or_method();
+		}
+
+        http::status method() requires (is_request) {
+            return parser_.status_code_or_method();
+        }
 
 		std::optional<size_t> content_length{};
 		bool chunked = false;

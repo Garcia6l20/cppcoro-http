@@ -176,8 +176,8 @@ namespace cppcoro::router
 		{
 		}
 
-		using result_t = std::variant<
-			typename detail::handler<HandlersT::route, typename HandlersT::fn_type>::result_t...>;
+		using result_t = cppcoro::detail::tuple_to_variant_t<cppcoro::detail::tuple_make_unique_t<std::tuple<
+			typename detail::handler<HandlersT::route, typename HandlersT::fn_type>::result_t...>>>;
 
 		template<typename... HandlerArgsT>
 		constexpr auto operator()(std::string_view path, HandlerArgsT&&... args)
@@ -188,7 +188,7 @@ namespace cppcoro::router
 						context_, path, std::make_tuple(std::forward<HandlerArgsT>(args)...));
 					result)
 				{
-					output = result.value();
+					output = std::move(result.value());
 					return cppcoro::detail::break_;
 				}
 				return cppcoro::detail::continue_;

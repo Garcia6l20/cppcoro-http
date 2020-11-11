@@ -33,6 +33,9 @@ namespace cppcoro::detail
 		using type = std::variant<TypesT...>;
 	};
 
+	template <typename TupleT>
+    using tuple_to_variant_t = typename tuple_to_variant<TupleT>::type;
+
 	namespace impl
 	{
 		template<size_t begin_, size_t... indices_, typename Tuple>
@@ -259,5 +262,60 @@ namespace cppcoro::detail
 	{
 		return detail::impl::generate(std::forward<decltype(lambda)>(lambda));
 	}
+
+    namespace impl {
+        template<typename T, typename Tuple>
+        struct tuple_type_count_impl;
+
+        template<typename T, typename...Types>
+        struct tuple_type_count_impl<T, std::tuple<Types...>>
+        {
+            template<typename ItemT>
+            static constexpr int match = std::is_same<T, ItemT>::value;
+            static constexpr auto value = (match<Types> | ...);
+        };
+    }
+
+    template <typename TupleT, typename T>
+    constexpr auto tuple_type_count = impl::tuple_type_count_impl<T, TupleT>::value;
+
+    namespace impl {
+        template<typename TupleT>
+        struct tuple_make_unique_impl;
+
+        template<typename...Types>
+        struct tuple_make_unique_impl<std::tuple<Types...>>
+        {
+
+            template<typename T, typename...RestT>
+            using cond_type = typename std::conditional<
+                tuple_type_count<std::tuple<RestT...>, T> < 1,
+                std::tuple<T>, std::tuple<>>::type;
+
+            template <typename...Args>
+            struct builder;
+
+            template <typename FirstT, typename...RestT>
+            struct builder<FirstT, RestT...> {
+                constexpr auto operator()() {
+                    return std::tuple_cat(cond_type<FirstT, RestT...>{}, builder<RestT...>{}());
+                }
+            };
+
+            template <typename LastT>
+            struct builder<LastT> {
+                constexpr auto operator()() {
+                    return std::tuple<LastT>();
+                }
+            };
+            using type = decltype(builder<Types...>{}());
+        };
+    }
+
+    /** @brief Remove duplicate types
+     *
+     */
+    template<class TupleT>
+    using tuple_make_unique_t = typename impl::tuple_make_unique_impl<TupleT>::type;
 
 }  // namespace cppcoro::detail
