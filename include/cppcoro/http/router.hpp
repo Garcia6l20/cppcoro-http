@@ -69,6 +69,7 @@ namespace cppcoro::http
 			io_service& service,
 			const net::ip_endpoint& endpoint,
 			auto router,
+			cancellation_source& cancel,
             Args&&...args)
 		{
             co_await net::serve(
@@ -80,6 +81,7 @@ namespace cppcoro::http
                   co_await std::get<task<>>(
                       router(rx.path, std::ref(rx), std::ref(con), http::method::get));
                 },
+                std::ref(cancel),
                 std::forward<Args>(args)...);
 		}
 	}  // namespace router

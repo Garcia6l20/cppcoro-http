@@ -110,47 +110,47 @@ namespace cppcoro::net
 					co_return std::forward<socket_type>(socket);
 				}
 			};
+			auto spawner = [](auto sock,
+                              auto make_connection,
+							  auto handler,
+							  std::reference_wrapper<args_t> args) -> task<> {
+
+				if constexpr (CPPCORO_HTTP_HAS_SSL and ssl::is_socket<socket_type>)
+				{
+					co_await sock.encrypt();
+				}
+				try
+				{
+					co_await std::apply(
+						handler,
+						std::tuple_cat(
+							std::make_tuple(co_await make_connection(std::move(sock), args.get())),
+							cppcoro::detail::tuple_generate([&]<size_t index>() {
+								if constexpr (std::tuple_size_v<handler_args_type> > index)
+								{
+									using element_t =
+										std::tuple_element_t<index, handler_args_type>;
+									if constexpr (std::is_rvalue_reference_v<element_t>)
+									{
+										return std::get<std::remove_reference_t<element_t>>(
+											args.get());
+									}
+									else
+									{
+										return std::get<element_t>(args);
+									}
+								}
+							})));
+				}
+				catch (operation_cancelled&)
+				{
+				}
+			};
 			while (not is_done())
 			{
 				auto conn_socket = make_socket();
 				co_await accept(conn_socket);
-				scope.spawn(
-					[make_connection](
-						auto sock, auto handler, std::reference_wrapper<args_t> args) -> task<> {
-#if CPPCORO_HTTP_HAS_SSL
-						if constexpr (ssl::is_socket<socket_type>)
-						{
-							co_await sock.encrypt();
-						}
-#endif
-						try
-						{
-							co_await std::apply(
-								handler,
-								std::tuple_cat(
-									std::make_tuple(
-										co_await make_connection(std::move(sock), args.get())),
-									cppcoro::detail::tuple_generate([&]<size_t index>() {
-										if constexpr (std::tuple_size_v<handler_args_type> > index)
-										{
-											using element_t =
-												std::tuple_element_t<index, handler_args_type>;
-											if constexpr (std::is_rvalue_reference_v<element_t>)
-											{
-												return std::get<std::remove_reference_t<element_t>>(
-													args.get());
-											}
-											else
-											{
-												return std::get<element_t>(args);
-											}
-										}
-									})));
-						}
-						catch (operation_cancelled&)
-						{
-						}
-					}(std::move(conn_socket), connection_handler, std::ref(args)));
+				scope.spawn(spawner(std::move(conn_socket), make_connection, connection_handler, std::ref(args)));
 			}
 		}
 		catch (operation_cancelled&)

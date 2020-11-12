@@ -16,6 +16,7 @@
 #include <ranges>
 #include <thread>
 
+#include <csignal>
 #include <iostream>
 
 using namespace cppcoro;
@@ -92,6 +93,17 @@ fmt::memory_buffer make_breadcrumb(std::string_view path)
 	return buff;
 }
 
+namespace
+{
+    cancellation_source g_cancellation_source{};
+}
+
+void at_exit(int)
+{
+    fmt::print("exit requested\n");
+    g_cancellation_source.request_cancellation();
+}
+
 int main(int argc, char** argv)
 {
 	bool debug = false;
@@ -119,6 +131,9 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
+    std::signal(SIGTERM, at_exit);
+    std::signal(SIGINT, at_exit);
+
 	if (debug)
 	{
 		spdlog::set_level(spdlog::level::debug);
@@ -126,7 +141,6 @@ int main(int argc, char** argv)
 	}
 
 	io_service service{ 256 };
-	cancellation_source cancel{};
 	auto server_endpoint = net::ip_endpoint::from_string(endpoint_input);
 
 	std::clamp(thread_count, 1u, 256u);
@@ -224,7 +238,7 @@ int main(int argc, char** argv)
 
 	auto do_serve = [&]() -> task<> {
 		auto _ = on_scope_exit([&] { service.stop(); });
-		co_await http::router::serve(service, *server_endpoint, std::ref(router), std::ref(cancel));
+		co_await http::router::serve(service, *server_endpoint, std::ref(router), std::ref(g_cancellation_source));
 	};
 
 	(void)sync_wait(when_all(
