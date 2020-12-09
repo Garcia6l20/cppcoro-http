@@ -1,5 +1,10 @@
 # CppCoro Http - http coroutine library for C++
 
+> :warning: After few experiments the API in master is not satifying enought.
+            The expected API should be closest to the [router-v2](https://github.com/Garcia6l20/cppcoro-http/tree/feature/router-v2) branch.
+            But it has some strange multithreading issues I'll not investigate
+            since [cppcoro](https://github.com/lewissbaker/cppcoro) looks inactive (library fixes needed).
+
 The 'cppcoro-http' provides a set of classes for creating http servers/clients.
 It is built on top of [cppcoro](https://github.com/lewissbaker/cppcoro) library.
 
